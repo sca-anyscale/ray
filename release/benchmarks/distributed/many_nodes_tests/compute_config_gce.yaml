@@ -17,6 +17,9 @@ advanced_instance_config:
 
 head_node:
   instance_type: n2-standard-64
+  resources:
+    CPU: 64
+    GPU: 0
 
 worker_nodes:
   - instance_type: n2-standard-2
