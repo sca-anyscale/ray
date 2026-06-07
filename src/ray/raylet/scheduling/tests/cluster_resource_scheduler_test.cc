@@ -66,6 +66,7 @@ ResourceRequest CreateResourceRequest(
   for (auto &entry : resource_map) {
     request.Set(entry.first, entry.second);
   }
+  RAY_LOG(INFO) << " RREQ1 " << request.DebugString();
   return request;
 }
 
@@ -75,6 +76,7 @@ ResourceRequest CreateResourceRequest(
   for (auto &entry : resource_map) {
     request.Set(ResourceID(entry.first), entry.second);
   }
+  RAY_LOG(INFO) << " RREQ2 " << request.DebugString();
   return request;
 }
 
@@ -1904,6 +1906,165 @@ TEST_F(ClusterResourceSchedulerTest, AffinityWithBundleScheduleTest) {
   test_schedule({{"CPU", 1}, {"memory", 100}}, bundle_3, scheduling::NodeID::Nil());
 
   test_schedule({{"CPU", 2}}, bundle_1, scheduling::NodeID::Nil());
+}
+
+TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
+  auto node_h = NodeID::FromHex("166e19d2a89525a5203bfac88235cfeed468bb8308c5d417ba759d44");
+  //auto node_1 = NodeID::FromHex("59800d3688f5ba7b2d28ca1a3bec186c02bef38a02eccc7940fc4315");
+  auto node_g = NodeID::FromHex("b84ddfcac617863af7f0213f403b58e2ed41b45b3f909e3d4d02ce7d");
+  auto node_c = NodeID::FromHex("59800d3688f5ba7b2d28ca1a3bec186c02bef38a02eccc7940fc4315");
+
+  auto pg_1 = PlacementGroupID::Of(JobID::FromInt(1));
+  BundleID bundle_1 = std::make_pair(pg_1, 0);
+  BundleID bundle_2 = std::make_pair(pg_1, 1);
+  BundleID bundle_3 = std::make_pair(pg_1, 2);
+  BundleID bundle_wc = std::make_pair(pg_1, -1);
+
+  rpc::SchedulingStrategy constraint_scheduling_strategy;
+  constraint_scheduling_strategy.mutable_placement_group_scheduling_strategy()
+      ->set_placement_group_id(bundle_1.first.Binary());
+  constraint_scheduling_strategy.mutable_placement_group_scheduling_strategy()
+      ->set_placement_group_bundle_index(bundle_1.second);
+
+  NodeResources node_resources_h = CreateNodeResources({{ResourceID::CPU(), 0},
+                                                       {ResourceID::GPU(), 0}});
+  ResourceRequest res_req_c = CreateResourceRequest({{ResourceID::CPU(), 2},
+                                                       {ResourceID::GPU(), 0}});
+  ResourceRequest res_req_g = CreateResourceRequest({{ResourceID::CPU(), 2},
+                                                       {ResourceID::GPU(), 1}});
+
+  instrumented_io_context io_service;
+  ClusterResourceScheduler resource_scheduler(io_service,
+                                              scheduling::NodeID(node_h.Binary()),
+                                              node_resources_h,
+                                              is_node_available_fn_,
+                                              fake_gauge_,
+                                              clock_);
+
+  ResourceRequest bundle_resource_request_1 =
+      CreateResourceRequest(AddPlacementGroupConstraint(
+          {{"CPU", 1}, {"GPU", 1}}, bundle_1.first, bundle_1.second));
+#if 0
+  NodeResources node_resources_1 =
+      NodeResources(NodeResourceSet(bundle_resource_request_1.ToResourceMap()));
+  resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
+      scheduling::NodeID(node_g.Binary()), node_resources_1);
+  resource_scheduler.GetClusterResourceManager()
+      .GetBundleLocationIndex()
+      .AddOrUpdateBundleLocation(bundle_1, node_g);
+#endif
+
+#if 0
+  ResourceRequest bundle_resource_request_3 =
+      CreateResourceRequest(AddPlacementGroupConstraint(
+          {{"CPU", 1}}, bundle_3.first, bundle_3.second));
+  std::cout << "[   LOG    ] #1 " << bundle_resource_request_1.DebugString() << std::endl;
+  std::cout << "[   LOG    ] #G " << res_req_g.DebugString() << std::endl;
+  std::cout << "[   LOG    ] #3 " << bundle_resource_request_3.DebugString() << std::endl;
+  bundle_resource_request_3 += bundle_resource_request_1;
+  std::cout << "[   LOG    ] #F " << bundle_resource_request_3.DebugString() << std::endl;
+  NodeResources node_resources_g =
+      NodeResources(NodeResourceSet(bundle_resource_request_3.ToResourceMap()));
+  // add CPU bundle to GPU node
+  resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
+      scheduling::NodeID(node_g.Binary()), node_resources_g);
+  resource_scheduler.GetClusterResourceManager()
+      .GetBundleLocationIndex()
+      .AddOrUpdateBundleLocation(bundle_3, node_g);
+  resource_scheduler.GetClusterResourceManager()
+      .GetBundleLocationIndex()
+      .AddOrUpdateBundleLocation(bundle_1, node_g);
+#endif
+  ResourceRequest bundle_resource_request_2 =
+      CreateResourceRequest(AddPlacementGroupConstraint(
+          {{"CPU", 1}}, bundle_2.first, bundle_2.second));
+  //bundle_resource_request_2.ToResourceMap().merge(res_req_c.ToResourceMap());
+  NodeResources node_resources_c =
+      NodeResources(NodeResourceSet(bundle_resource_request_2.ToResourceMap()));
+  resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
+      scheduling::NodeID(node_c.Binary()),
+      node_resources_c);
+  resource_scheduler.GetClusterResourceManager()
+      .GetBundleLocationIndex()
+      .AddOrUpdateBundleLocation(bundle_2, node_c);
+
+#if 1
+  ResourceRequest bundle_resource_request_3 =
+      CreateResourceRequest(AddPlacementGroupConstraint(
+          {{"CPU", 1}}, bundle_3.first, bundle_3.second));
+  std::cout << "[   LOG    ] #1 " << bundle_resource_request_1.DebugString() << std::endl;
+  std::cout << "[   LOG    ] #G " << res_req_g.DebugString() << std::endl;
+  std::cout << "[   LOG    ] #3 " << bundle_resource_request_3.DebugString() << std::endl;
+  bundle_resource_request_3 += bundle_resource_request_1;
+  std::cout << "[   LOG    ] #F " << bundle_resource_request_3.DebugString() << std::endl;
+  NodeResources node_resources_g =
+      NodeResources(NodeResourceSet(bundle_resource_request_3.ToResourceMap()));
+  // add CPU bundle to GPU node
+  resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
+      scheduling::NodeID(node_g.Binary()), node_resources_g);
+  resource_scheduler.GetClusterResourceManager()
+      .GetBundleLocationIndex()
+      .AddOrUpdateBundleLocation(bundle_3, node_g);
+  resource_scheduler.GetClusterResourceManager()
+      .GetBundleLocationIndex()
+      .AddOrUpdateBundleLocation(bundle_1, node_g);
+#endif
+  std::cout << "[   LOG    ] GPU node " << scheduling::NodeID(node_g.Binary()) <<
+    std::endl;
+  std::cout << "[   LOG    ] CPU node " << scheduling::NodeID(node_c.Binary()) <<
+    std::endl;
+  auto test_schedule = [&resource_scheduler](
+                           const std::unordered_map<std::string, double> &resources,
+                           const BundleID bundle_id,
+                           const scheduling::NodeID &expect_node_id) {
+    int64_t violations;
+    bool is_infeasible;
+    rpc::SchedulingStrategy scheduling_strategy;
+#if 0
+    ResourceRequest resource_request = CreateResourceRequest(
+        AddPlacementGroupConstraint(resources, bundle_id.first, bundle_id.second));
+    rpc::SchedulingStrategy scheduling_strategy;
+#endif
+    scheduling_strategy.mutable_placement_group_scheduling_strategy()
+        ->set_placement_group_id(bundle_id.first.Binary());
+    scheduling_strategy.mutable_placement_group_scheduling_strategy()
+        ->set_placement_group_bundle_index(bundle_id.second);
+#if 1
+    ResourceRequest resource_request = CreateResourceRequest(
+        AddPlacementGroupConstraint(resources, scheduling_strategy));
+#endif
+    ASSERT_EQ(resource_scheduler.GetBestSchedulableNode(resource_request,
+                                                        scheduling_strategy,
+                                                        true,
+                                                        false,
+                                                        std::string(),
+                                                        &violations,
+                                                        &is_infeasible),
+              expect_node_id);
+     auto task_allocation = std::make_shared<TaskResourceInstances>();
+     ResourceRequest req = CreateResourceRequest(resources);
+     ASSERT_TRUE(resource_scheduler.GetLocalResourceManager().AllocateLocalTaskResources(
+         req, task_allocation));
+  };
+#if 1
+  test_schedule(
+      {{"CPU", 1}}, bundle_wc, scheduling::NodeID(node_c.Binary()));
+
+  test_schedule(
+      {{"CPU", 1}}, bundle_wc, scheduling::NodeID(node_c.Binary()));
+
+  test_schedule(
+      {{"CPU", 1}, {"GPU", 1}}, bundle_wc, scheduling::NodeID(node_g.Binary()));
+#else
+  test_schedule(
+      {}, bundle_2, scheduling::NodeID(node_c.Binary()));
+
+  test_schedule(
+      {}, bundle_2, scheduling::NodeID(node_c.Binary()));
+
+  test_schedule(
+      {}, bundle_1, scheduling::NodeID(node_g.Binary()));
+#endif
 }
 
 TEST_F(ClusterResourceSchedulerTest, LabelSelectorIsSchedulableOnNodeTest) {
