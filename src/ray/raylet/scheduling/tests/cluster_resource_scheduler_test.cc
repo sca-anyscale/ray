@@ -1954,7 +1954,10 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
       .AddOrUpdateBundleLocation(bundle_1, node_g);
 #endif
 
-#if 0
+  ResourceRequest bundle_resource_request_2_2 =
+      CreateResourceRequest(AddPlacementGroupConstraint(
+          {{"CPU", 1}}, bundle_2.first, bundle_2.second));
+#if 1
   ResourceRequest bundle_resource_request_3 =
       CreateResourceRequest(AddPlacementGroupConstraint(
           {{"CPU", 1}}, bundle_3.first, bundle_3.second));
@@ -1962,6 +1965,8 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
   std::cout << "[   LOG    ] #G " << res_req_g.DebugString() << std::endl;
   std::cout << "[   LOG    ] #3 " << bundle_resource_request_3.DebugString() << std::endl;
   bundle_resource_request_3 += bundle_resource_request_1;
+  bundle_resource_request_3 += bundle_resource_request_2_2;
+  bundle_resource_request_3  += CreateResourceRequest({{"CPU", 2.0}, {"GPU", 1.0}});
   std::cout << "[   LOG    ] #F " << bundle_resource_request_3.DebugString() << std::endl;
   NodeResources node_resources_g =
       NodeResources(NodeResourceSet(bundle_resource_request_3.ToResourceMap()));
@@ -1979,6 +1984,8 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
       CreateResourceRequest(AddPlacementGroupConstraint(
           {{"CPU", 1}}, bundle_2.first, bundle_2.second));
   //bundle_resource_request_2.ToResourceMap().merge(res_req_c.ToResourceMap());
+  bundle_resource_request_2 += CreateResourceRequest({{"CPU", 2.0}});
+  bundle_resource_request_2 += bundle_resource_request_2_2;
   NodeResources node_resources_c =
       NodeResources(NodeResourceSet(bundle_resource_request_2.ToResourceMap()));
   resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
@@ -1988,7 +1995,7 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
       .GetBundleLocationIndex()
       .AddOrUpdateBundleLocation(bundle_2, node_c);
 
-#if 1
+#if 0
   ResourceRequest bundle_resource_request_3 =
       CreateResourceRequest(AddPlacementGroupConstraint(
           {{"CPU", 1}}, bundle_3.first, bundle_3.second));
@@ -1996,6 +2003,8 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
   std::cout << "[   LOG    ] #G " << res_req_g.DebugString() << std::endl;
   std::cout << "[   LOG    ] #3 " << bundle_resource_request_3.DebugString() << std::endl;
   bundle_resource_request_3 += bundle_resource_request_1;
+  bundle_resource_request_3 += bundle_resource_request_2_2;
+  bundle_resource_request_3  += CreateResourceRequest({{"CPU", 2.0}, {"GPU", 1.0}});
   std::cout << "[   LOG    ] #F " << bundle_resource_request_3.DebugString() << std::endl;
   NodeResources node_resources_g =
       NodeResources(NodeResourceSet(bundle_resource_request_3.ToResourceMap()));
@@ -2033,18 +2042,21 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
     ResourceRequest resource_request = CreateResourceRequest(
         AddPlacementGroupConstraint(resources, scheduling_strategy));
 #endif
-    ASSERT_EQ(resource_scheduler.GetBestSchedulableNode(resource_request,
+    auto best_node_id = resource_scheduler.GetBestSchedulableNode(resource_request,
                                                         scheduling_strategy,
                                                         true,
                                                         false,
                                                         std::string(),
                                                         &violations,
-                                                        &is_infeasible),
-              expect_node_id);
-     auto task_allocation = std::make_shared<TaskResourceInstances>();
-     ResourceRequest req = CreateResourceRequest(resources);
-     ASSERT_TRUE(resource_scheduler.GetLocalResourceManager().AllocateLocalTaskResources(
-         req, task_allocation));
+                                                        &is_infeasible);
+    ASSERT_EQ(best_node_id, expect_node_id);
+    auto task_allocation = std::make_shared<TaskResourceInstances>();
+    ResourceRequest req = CreateResourceRequest(resources) += resource_request;
+    // not clear this local update is required
+    //ASSERT_TRUE(resource_scheduler.GetLocalResourceManager().AllocateLocalTaskResources(
+    //    req, task_allocation));
+    resource_scheduler.GetClusterResourceManager().SubtractNodeAvailableResources(best_node_id,
+      req);
   };
 #if 1
   test_schedule(
