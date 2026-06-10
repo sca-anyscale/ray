@@ -1910,7 +1910,6 @@ TEST_F(ClusterResourceSchedulerTest, AffinityWithBundleScheduleTest) {
 
 TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
   auto node_h = NodeID::FromHex("166e19d2a89525a5203bfac88235cfeed468bb8308c5d417ba759d44");
-  //auto node_1 = NodeID::FromHex("59800d3688f5ba7b2d28ca1a3bec186c02bef38a02eccc7940fc4315");
   auto node_g = NodeID::FromHex("b84ddfcac617863af7f0213f403b58e2ed41b45b3f909e3d4d02ce7d");
   auto node_c = NodeID::FromHex("59800d3688f5ba7b2d28ca1a3bec186c02bef38a02eccc7940fc4315");
 
@@ -1944,15 +1943,6 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
   ResourceRequest bundle_resource_request_1 =
       CreateResourceRequest(AddPlacementGroupConstraint(
           {{"CPU", 1}, {"GPU", 1}}, bundle_1.first, bundle_1.second));
-#if 0
-  NodeResources node_resources_1 =
-      NodeResources(NodeResourceSet(bundle_resource_request_1.ToResourceMap()));
-  resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
-      scheduling::NodeID(node_g.Binary()), node_resources_1);
-  resource_scheduler.GetClusterResourceManager()
-      .GetBundleLocationIndex()
-      .AddOrUpdateBundleLocation(bundle_1, node_g);
-#endif
 
   ResourceRequest bundle_resource_request_2_2 =
       CreateResourceRequest(AddPlacementGroupConstraint(
@@ -2058,7 +2048,7 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
     resource_scheduler.GetClusterResourceManager().SubtractNodeAvailableResources(best_node_id,
       req);
   };
-#if 1
+
   test_schedule(
       {{"CPU", 1}}, bundle_wc, scheduling::NodeID(node_c.Binary()));
 
@@ -2067,16 +2057,6 @@ TEST_F(ClusterResourceSchedulerTest, GPUAffinityWithBundleScheduleTest) {
 
   test_schedule(
       {{"CPU", 1}, {"GPU", 1}}, bundle_wc, scheduling::NodeID(node_g.Binary()));
-#else
-  test_schedule(
-      {}, bundle_2, scheduling::NodeID(node_c.Binary()));
-
-  test_schedule(
-      {}, bundle_2, scheduling::NodeID(node_c.Binary()));
-
-  test_schedule(
-      {}, bundle_1, scheduling::NodeID(node_g.Binary()));
-#endif
 }
 
 TEST_F(ClusterResourceSchedulerTest, LabelSelectorIsSchedulableOnNodeTest) {
