@@ -159,6 +159,10 @@ class RaySyncer {
   /// \param message The message to be broadcasted.
   void BroadcastMessage(std::shared_ptr<const RaySyncMessage> message);
 
+  /// Function to force a message to be sent when resources change.
+  /// This will end up calling OnDemandBroadcasting()
+  void ForceUpdate();
+
   std::vector<std::string> GetAllConnectedNodeIDs() const;
 
  private:

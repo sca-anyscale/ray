@@ -196,6 +196,12 @@ void RaySyncer::Register(MessageType message_type,
       "RaySyncerRegister");
 }
 
+void RaySyncer::ForceUpdate() {
+  // this is intended for use in the raylet and relies on no batching being in use
+  RAY_LOG(INFO) << "FORCE UPDATE";
+  OnDemandBroadcasting(MessageType::RESOURCE_VIEW);
+}
+
 bool RaySyncer::OnDemandBroadcasting(MessageType message_type) {
   auto msg = node_state_->CreateSyncMessage(message_type);
   if (msg) {
