@@ -1977,6 +1977,7 @@ void NodeManager::HandleCommitBundleResources(
   placement_group_resource_manager_.CommitBundles(bundle_specs);
   send_reply_callback(Status::OK(), nullptr, nullptr);
 
+  ray_syncer_.ForceUpdate();
   cluster_lease_manager_.ScheduleAndGrantLeases();
 }
 
