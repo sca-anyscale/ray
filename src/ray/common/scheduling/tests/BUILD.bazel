@@ -72,3 +72,17 @@ ray_cc_test(
         "//src/ray/common/scheduling:fallback_strategy",
     ],
 )
+
+ray_cc_test(
+    name = "placement_group_util_test",
+    size = "small",
+    srcs = [
+        "placement_group_util_test.cc",
+    ],
+    tags = ["team:core"],
+    deps = [
+        "//src/ray/common:bundle_spec",
+        "//src/ray/common/scheduling:placement_group_util",
+        "//src/ray/protobuf:common_cc_proto",
+    ],
+)

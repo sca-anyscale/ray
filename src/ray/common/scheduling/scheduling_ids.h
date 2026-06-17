@@ -40,6 +40,7 @@ inline constexpr char kGPU_ResourceLabel[] = "GPU";
 inline constexpr char kObjectStoreMemory_ResourceLabel[] = "object_store_memory";
 inline constexpr char kMemory_ResourceLabel[] = "memory";
 inline constexpr char kBundle_ResourceLabel[] = "bundle";
+inline constexpr char kComboBundle_ResourceLabel[] = "combo_bundle";
 
 /// Class to map string IDs to unique integer IDs and back.
 class StringIdMap {

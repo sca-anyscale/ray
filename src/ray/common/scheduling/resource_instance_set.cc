@@ -132,6 +132,11 @@ FixedPoint NodeResourceInstanceSet::Sum(ResourceID resource_id) const {
   }
 }
 
+static bool comboMatch(const std::string original_id, const std::string candidate_id) {
+  return original_id.find(kCompositeGroupPrefix) ==
+         candidate_id.find(kCompositeGroupPrefix);
+}
+
 bool NodeResourceInstanceSet::operator==(const NodeResourceInstanceSet &other) const {
   return this->resources_ == other.resources_;
 }
@@ -211,6 +216,8 @@ NodeResourceInstanceSet::TryAllocate(const ResourceSet &resource_demands) {
 
   // Handle the resource allocation for resources with placement group
   for (const auto &[original_resource_id, resource_id_vector] : pg_resource_map) {
+    RAY_LOG(INFO) << "TRYALLOCRES " << original_resource_id;
+
     // Assuming exactly 1 placement group and at most 1 bundle index can be specified in
     // the resource requirement for a single resource type
     // Also assuming the wildcard resource id will always exist in the resource_demands
@@ -233,6 +240,13 @@ NodeResourceInstanceSet::TryAllocate(const ResourceSet &resource_demands) {
         auto index_resources_it = pg_index_resources_it->second.find(*pg_id);
         if (index_resources_it != pg_index_resources_it->second.end()) {
           for (ResourceID indexed_resource_id : index_resources_it->second) {
+            if (!comboMatch(resource_id_vector[0].second.requested_resource,
+                            indexed_resource_id.Binary())) {
+              RAY_LOG(DEBUG) << "Allocation skipped due to composite mismatch "
+                             << resource_id_vector[0].second.requested_resource << " "
+                             << indexed_resource_id;
+              continue;
+            }
             if (Has(indexed_resource_id)) {
               wildcard_allocation = TryAllocate(
                   indexed_resource_id, resource_demands.Get(*wildcard_resource_id));
@@ -299,6 +313,7 @@ std::optional<std::vector<FixedPoint>> NodeResourceInstanceSet::TryAllocate(
     return std::nullopt;
   }
 
+  RAY_LOG(INFO) << "TRYALLOC2 " << resource_id << " " << demand;
   std::vector<FixedPoint> allocation(available.size());
   FixedPoint remaining_demand = demand;
 

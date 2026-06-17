@@ -21,9 +21,11 @@
 
 namespace ray {
 
+const char kCompositeGroupPrefix[] = "combo_";
 using scheduling::ResourceID;
 
 struct PgFormattedResourceData {
+  std::string requested_resource;
   std::string original_resource;
   /// -1 if it is a wildcard resource.
   int64_t bundle_index;

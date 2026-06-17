@@ -90,10 +90,16 @@ class BundleSpecification : public MessageWrapper<rpc::Bundle> {
   /// 2) `CPU_group_${bundle_index}_${group_id}`: this is the requested resource
   /// when the actor or task specifies placement group with bundle id.
   absl::flat_hash_map<std::string, double> bundle_resource_labels_;
+  FRIEND_TEST(PlacementGroupUtilTest, BasicFormatter);
+  FRIEND_TEST(PlacementGroupUtilTest, ComboFormatter);
+  FRIEND_TEST(PlacementGroupUtilTest, BasicParser);
+  FRIEND_TEST(PlacementGroupUtilTest, ComboParser);
 };
 
 /// Format a placement group resource with provided parameters.
 ///
+/// \param prefix A prefix for the name; normally empty, except if multiple
+//                resource types are present in the bundle
 /// \param original_resource_name The original resource name of the pg resource.
 /// \param group_id_str The group id in string format.
 /// \param bundle_index The bundle index. If -1, generate the wildcard pg resource.
@@ -101,12 +107,14 @@ class BundleSpecification : public MessageWrapper<rpc::Bundle> {
 ///                     If >=0, generate the indexed pg resource. E.g.,
 ///                     [original_resource_name]_group_[bundle_index]_[group_id_str]
 /// \return The corresponding formatted placement group resource string.
-std::string FormatPlacementGroupResource(const std::string &original_resource_name,
+std::string FormatPlacementGroupResource(const std::string &prefix,
+                                         const std::string &original_resource_name,
                                          const std::string &group_id_hex,
                                          int64_t bundle_index = -1);
 
 /// Format a placement group resource, e.g., CPU -> CPU_group_i
-std::string FormatPlacementGroupResource(const std::string &original_resource_name,
+std::string FormatPlacementGroupResource(const std::string &prefix,
+                                         const std::string &original_resource_name,
                                          const PlacementGroupID &group_id,
                                          int64_t bundle_index = -1);
 

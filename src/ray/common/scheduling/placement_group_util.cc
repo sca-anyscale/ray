@@ -39,9 +39,23 @@ bool IsCPUOrPlacementGroupCPUResource(ResourceID resource_id) {
 }
 
 std::optional<PgFormattedResourceData> ParsePgFormattedResource(
-    const std::string &resource, bool for_wildcard_resource, bool for_indexed_resource) {
+    const std::string &orig_resource,
+    bool for_wildcard_resource,
+    bool for_indexed_resource) {
+  std::string resource(orig_resource);
+  auto is_combo = false;
+
+  // ignore the composite group prefix if present
+  if (absl::StartsWith(resource, kCompositeGroupPrefix)) {
+    std::string_view sv(orig_resource);
+    sv.remove_prefix(sizeof(kCompositeGroupPrefix) - 1);
+    resource = std::string(sv);
+    is_combo = true;
+  }
+
   // Check if it is a wildcard pg resource.
   PgFormattedResourceData data;
+  data.requested_resource = orig_resource;
   std::smatch match_groups;
   RAY_CHECK(for_wildcard_resource || for_indexed_resource)
       << "Either one of for_wildcard_resource or for_indexed_resource must be true";
@@ -52,6 +66,9 @@ std::optional<PgFormattedResourceData> ParsePgFormattedResource(
     if (std::regex_match(resource, match_groups, wild_card_resource_pattern) &&
         match_groups.size() == 3) {
       data.original_resource = match_groups[1].str();
+      if (data.original_resource == "bundle" && is_combo) {
+        data.original_resource = kComboBundle_ResourceLabel;
+      }
       data.bundle_index = -1;
       data.group_id = match_groups[2].str();
       return data;
@@ -64,6 +81,9 @@ std::optional<PgFormattedResourceData> ParsePgFormattedResource(
     if (std::regex_match(resource, match_groups, pg_resource_pattern) &&
         match_groups.size() == 4) {
       data.original_resource = match_groups[1].str();
+      if (data.original_resource == "bundle" && is_combo) {
+        data.original_resource = kComboBundle_ResourceLabel;
+      }
       data.bundle_index = stoi(match_groups[2].str());
       data.group_id = match_groups[3].str();
       return data;

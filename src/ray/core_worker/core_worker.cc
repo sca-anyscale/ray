@@ -2206,9 +2206,10 @@ Status CoreWorker::CreatePlacementGroup(
   const auto &bundles = placement_group_creation_options.bundles_;
   for (const auto &bundle : bundles) {
     for (const auto &resource : bundle) {
-      if (resource.first == kBundle_ResourceLabel) {
+      if (resource.first == kBundle_ResourceLabel ||
+          resource.first == kComboBundle_ResourceLabel) {
         std::ostringstream stream;
-        stream << kBundle_ResourceLabel << " is a system reserved resource, which is not "
+        stream << resource.first << " is a system reserved resource, which is not "
                << "allowed to be used in placement group. ";
         return Status::Invalid(stream.str());
       }

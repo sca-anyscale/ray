@@ -43,25 +43,32 @@ void BundleSpecification::ComputeResources() {
 
 void BundleSpecification::ComputeBundleResourceLabels() {
   RAY_CHECK(unit_resource_);
+  std::string prefix("");
 
+  if (unit_resource_->Size() > 1) {
+    /// bundles with multiple resource types shouldn't be used up when only a
+    /// single resource is needed -- attach a prefix so that they won't be found
+    /// erroneously
+    prefix = kCompositeGroupPrefix;
+  }
   for (auto &resource_id : unit_resource_->ResourceIds()) {
     auto resource_name = resource_id.Binary();
     auto resource_value = unit_resource_->Get(resource_id);
 
     /// With bundle index (e.g., CPU_group_i_zzz).
     const std::string &resource_label =
-        FormatPlacementGroupResource(resource_name, PlacementGroupId(), Index());
+        FormatPlacementGroupResource(prefix, resource_name, PlacementGroupId(), Index());
     bundle_resource_labels_[resource_label] = resource_value.Double();
 
     /// Without bundle index (e.g., CPU_group_zzz).
     const std::string &wildcard_label =
-        FormatPlacementGroupResource(resource_name, PlacementGroupId(), -1);
+        FormatPlacementGroupResource(prefix, resource_name, PlacementGroupId(), -1);
     bundle_resource_labels_[wildcard_label] = resource_value.Double();
   }
   auto bundle_label =
-      FormatPlacementGroupResource(kBundle_ResourceLabel, PlacementGroupId(), -1);
-  auto index_bundle_label =
-      FormatPlacementGroupResource(kBundle_ResourceLabel, PlacementGroupId(), Index());
+      FormatPlacementGroupResource(prefix, kBundle_ResourceLabel, PlacementGroupId(), -1);
+  auto index_bundle_label = FormatPlacementGroupResource(
+      prefix, kBundle_ResourceLabel, PlacementGroupId(), Index());
   bundle_resource_labels_[index_bundle_label] = bundle_resource_labels_[bundle_label] =
       1000;
 }
@@ -102,29 +109,35 @@ std::string BundleSpecification::DebugString() const {
   return stream.str();
 }
 
-std::string FormatPlacementGroupResource(const std::string &original_resource_name,
+std::string FormatPlacementGroupResource(const std::string &prefix,
+                                         const std::string &original_resource_name,
                                          const std::string &group_id_hex,
                                          int64_t bundle_index) {
   std::stringstream os;
   if (bundle_index >= 0) {
-    os << original_resource_name << kGroupKeyword << std::to_string(bundle_index) << "_"
-       << group_id_hex;
+    os << prefix << original_resource_name << kGroupKeyword
+       << std::to_string(bundle_index) << "_" << group_id_hex;
   } else {
     RAY_CHECK(bundle_index == -1) << "Invalid index " << bundle_index;
-    os << original_resource_name << kGroupKeyword << group_id_hex;
+    os << prefix << original_resource_name << kGroupKeyword << group_id_hex;
   }
   std::string result = os.str();
-  RAY_DCHECK(GetOriginalResourceName(result) == original_resource_name)
+  std::string check_resource_name(original_resource_name);
+  if (original_resource_name == kBundle_ResourceLabel) {
+    check_resource_name = prefix + original_resource_name;
+  }
+  RAY_DCHECK(GetOriginalResourceName(result) == check_resource_name)
       << "Generated: " << GetOriginalResourceName(result)
-      << " Original: " << original_resource_name;
+      << " Original: " << check_resource_name;
   return result;
 }
 
-std::string FormatPlacementGroupResource(const std::string &original_resource_name,
+std::string FormatPlacementGroupResource(const std::string &prefix,
+                                         const std::string &original_resource_name,
                                          const PlacementGroupID &group_id,
                                          int64_t bundle_index) {
   return FormatPlacementGroupResource(
-      original_resource_name, group_id.Hex(), bundle_index);
+      prefix, original_resource_name, group_id.Hex(), bundle_index);
 }
 
 std::string GetOriginalResourceName(const std::string &resource) {
@@ -159,6 +172,13 @@ std::unordered_map<std::string, double> AddPlacementGroupConstraint(
     const std::unordered_map<std::string, double> &resources,
     const PlacementGroupID &placement_group_id,
     int64_t bundle_index) {
+  std::string prefix("");
+  if (resources.size() > 1) {
+    /// bundles with multiple resource types shouldn't be used up when only a
+    /// single resource is needed -- attach a prefix so that they won't be found
+    /// erroneously
+    prefix = kCompositeGroupPrefix;
+  }
   if (placement_group_id.IsNil()) {
     return resources;
   }
@@ -166,13 +186,14 @@ std::unordered_map<std::string, double> AddPlacementGroupConstraint(
   std::unordered_map<std::string, double> new_resources;
   RAY_CHECK((bundle_index == -1 || bundle_index >= 0))
       << "Invalid bundle index " << bundle_index;
+
   for (auto iter = resources.begin(); iter != resources.end(); iter++) {
     auto wildcard_name =
-        FormatPlacementGroupResource(iter->first, placement_group_id, -1);
+        FormatPlacementGroupResource(prefix, iter->first, placement_group_id, -1);
     new_resources[wildcard_name] = iter->second;
     if (bundle_index >= 0) {
-      auto index_name =
-          FormatPlacementGroupResource(iter->first, placement_group_id, bundle_index);
+      auto index_name = FormatPlacementGroupResource(
+          prefix, iter->first, placement_group_id, bundle_index);
       new_resources[index_name] = iter->second;
     }
   }
@@ -182,11 +203,11 @@ std::unordered_map<std::string, double> AddPlacementGroupConstraint(
   // Always include bundle resource wildcard resources, so that
   // even when the task doesn't require any resource, it can use the placement group.
   auto bundle_key =
-      FormatPlacementGroupResource(kBundle_ResourceLabel, placement_group_id, -1);
+      FormatPlacementGroupResource(prefix, kBundle_ResourceLabel, placement_group_id, -1);
   new_resources[bundle_key] = 0.001;
   if (bundle_index >= 0) {
     auto bundle_key_with_index = FormatPlacementGroupResource(
-        kBundle_ResourceLabel, placement_group_id, bundle_index);
+        prefix, kBundle_ResourceLabel, placement_group_id, bundle_index);
     new_resources[bundle_key_with_index] = 0.001;
   }
   return new_resources;

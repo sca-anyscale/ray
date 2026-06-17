@@ -135,7 +135,8 @@ void NewPlacementGroupResourceManager::CommitBundle(
   for (const auto &resource : resources) {
     const auto &resource_name = resource.first;
     const auto &original_resource_name = GetOriginalResourceName(resource_name);
-    if (original_resource_name != kBundle_ResourceLabel) {
+    if (original_resource_name != kBundle_ResourceLabel &&
+        original_resource_name != kComboBundle_ResourceLabel) {
       const auto &instances =
           task_resource_instances.Get(ResourceID(original_resource_name));
       cluster_resource_scheduler_.GetLocalResourceManager().AddLocalResourceInstances(
