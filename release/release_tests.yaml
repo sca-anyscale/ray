@@ -3131,6 +3131,30 @@
         anyscale_sdk_2026: true
         cluster_compute: placement_group_tests/compute_gce.yaml
 
+- name: pg_disjoint_bundle_regression_test
+  python: "3.10"
+  group: core-daily-test
+  working_dir: nightly_tests
+
+  frequency: nightly
+  team: core
+  cluster:
+    anyscale_sdk_2026: true
+    cluster_compute: placement_group_tests/compute_combo.yaml
+
+  run:
+    timeout: 1200
+    script: python placement_group_tests/pg_combo_bundles.py
+
+  variations:
+    - __suffix__: aws
+    - __suffix__: gce
+      env: gce
+      frequency: manual
+      cluster:
+        anyscale_sdk_2026: true
+        cluster_compute: placement_group_tests/compute_combo_gce.yaml
+
 - name: placement_group_performance_test
   python: "3.10"
   group: core-daily-test
