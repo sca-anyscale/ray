@@ -939,6 +939,69 @@ TEST_F(NodeResourceInstanceSetTest, TestTryAllocateMultiplePgResourceAndNoBundle
   }
 }
 
+TEST_F(NodeResourceInstanceSetTest, TestTryAllocateDisjointPgResourceAndNoBundleIndex) {
+  // Case 1: CPU allocation should not use a combo resource
+  ResourceID cpu_resource("CPU");
+  ResourceID pg_cpu_wildcard_resource("CPU_group_4482dec0faaf5ead891ff1659a9501000000");
+  ResourceID pg_combo_cpu_wildcard_resource(
+      "combo_CPU_group_4482dec0faaf5ead891ff1659a9501000000");
+  ResourceID pg_cpu_index_0_resource(
+      "combo_CPU_group_0_4482dec0faaf5ead891ff1659a9501000000");
+  ResourceID pg_cpu_index_1_resource("CPU_group_1_4482dec0faaf5ead891ff1659a9501000000");
+  ResourceID pg_cpu_index_2_resource("CPU_group_2_4482dec0faaf5ead891ff1659a9501000000");
+
+  ResourceID gpu_resource("GPU");
+  ResourceID pg_gpu_wildcard_resource("GPU_group_4482dec0faaf5ead891ff1659a9501000000");
+  ResourceID pg_combo_gpu_wildcard_resource(
+      "combo_GPU_group_4482dec0faaf5ead891ff1659a9501000000");
+  ResourceID pg_gpu_index_0_resource(
+      "combo_GPU_group_0_4482dec0faaf5ead891ff1659a9501000000");
+
+  NodeResourceInstanceSet r1 = NodeResourceInstanceSet(
+      NodeResourceSet(absl::flat_hash_map<std::string, double>{}));
+  r1.Set(cpu_resource, std::vector<FixedPoint>({FixedPoint(3)}));
+  r1.Set(pg_cpu_wildcard_resource, std::vector<FixedPoint>({FixedPoint(2)}));
+  r1.Set(pg_combo_cpu_wildcard_resource, std::vector<FixedPoint>({FixedPoint(1)}));
+  r1.Set(pg_cpu_index_0_resource, std::vector<FixedPoint>({FixedPoint(1)}));
+  r1.Set(pg_cpu_index_1_resource, std::vector<FixedPoint>({FixedPoint(1)}));
+  r1.Set(pg_cpu_index_2_resource, std::vector<FixedPoint>({FixedPoint(1)}));
+  r1.Set(gpu_resource, std::vector<FixedPoint>({FixedPoint(1)}));
+  r1.Set(pg_combo_gpu_wildcard_resource, std::vector<FixedPoint>({FixedPoint(1)}));
+  r1.Set(pg_gpu_index_0_resource, std::vector<FixedPoint>({FixedPoint(1)}));
+
+  ResourceSet first_cpu_request =
+      ResourceSet({{pg_cpu_wildcard_resource, FixedPoint(1)}});
+  auto allocations = r1.TryAllocate(first_cpu_request);
+  ASSERT_TRUE(allocations);
+  ASSERT_EQ(r1.Get(cpu_resource), std::vector<FixedPoint>({FixedPoint(3)}));
+  ASSERT_EQ(r1.Get(gpu_resource), std::vector<FixedPoint>({FixedPoint(1)}));
+  ASSERT_EQ(r1.Get(pg_cpu_wildcard_resource), std::vector<FixedPoint>({FixedPoint(1)}));
+  ASSERT_EQ(r1.Get(pg_combo_cpu_wildcard_resource),
+            std::vector<FixedPoint>({FixedPoint(1)}));
+  ASSERT_EQ(r1.Get(pg_cpu_index_0_resource), std::vector<FixedPoint>({FixedPoint(1)}));
+
+  ResourceSet second_cpu_request =
+      ResourceSet({{pg_cpu_wildcard_resource, FixedPoint(1)}});
+  allocations = r1.TryAllocate(second_cpu_request);
+  ASSERT_TRUE(allocations);
+  ASSERT_EQ(r1.Get(cpu_resource), std::vector<FixedPoint>({FixedPoint(3)}));
+  ASSERT_EQ(r1.Get(pg_cpu_wildcard_resource), std::vector<FixedPoint>({FixedPoint(0)}));
+  ASSERT_EQ(r1.Get(pg_combo_cpu_wildcard_resource),
+            std::vector<FixedPoint>({FixedPoint(1)}));
+  ASSERT_EQ(r1.Get(pg_cpu_index_0_resource), std::vector<FixedPoint>({FixedPoint(1)}));
+
+  ResourceSet gpu_request =
+      ResourceSet({{pg_combo_cpu_wildcard_resource, FixedPoint(1)},
+                   {pg_combo_gpu_wildcard_resource, FixedPoint(1)}});
+  allocations = r1.TryAllocate(gpu_request);
+  ASSERT_TRUE(allocations);
+  ASSERT_EQ(r1.Get(cpu_resource), std::vector<FixedPoint>({FixedPoint(3)}));
+  ASSERT_EQ(r1.Get(pg_combo_cpu_wildcard_resource),
+            std::vector<FixedPoint>({FixedPoint(0)}));
+  ASSERT_EQ(r1.Get(pg_combo_gpu_wildcard_resource),
+            std::vector<FixedPoint>({FixedPoint(0)}));
+}
+
 TEST_F(NodeResourceInstanceSetTest, TestFree) {
   NodeResourceInstanceSet r1;
   r1.Set(ResourceID("GPU"), std::vector<FixedPoint>({FixedPoint(1), FixedPoint(0.3)}));
