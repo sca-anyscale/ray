@@ -341,7 +341,7 @@ void GcsServer::GetOrGenerateClusterId(
 }
 
 void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
-  InitClusterResourceScheduler();
+  InitClusterResourceScheduler(gcs_init_data);
   InitGcsNodeManager(gcs_init_data);
   InitClusterLeaseManager();
   InitGcsResourceManager(gcs_init_data);
@@ -568,7 +568,7 @@ void GcsServer::InitGcsResourceLoadPuller() {
       "RayletLoadPulled");
 }
 
-void GcsServer::InitClusterResourceScheduler() {
+void GcsServer::InitClusterResourceScheduler(const GcsInitData &gcs_init_data) {
   cluster_resource_scheduler_ = std::make_shared<ClusterResourceScheduler>(
       // See https://github.com/ray-project/ray/pull/65271 for why the GCS
       // resource view does not need the periodic reset that raylets run.
@@ -580,6 +580,8 @@ void GcsServer::InitClusterResourceScheduler() {
       /*resource_usage_gauge=*/metrics_.resource_usage_gauge,
       /*clock=*/clock_,
       /*is_local_node_with_raylet=*/false);
+
+  cluster_resource_scheduler_->RestoreNodeResources(gcs_init_data.NodeResources());
 }
 
 void GcsServer::InitClusterLeaseManager() {
