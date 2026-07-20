@@ -21,6 +21,7 @@
 #include "ray/asio/periodical_runner.h"
 #include "ray/gcs/fake_gcs_node_manager.h"
 #include "ray/gcs/gcs_resource_manager.h"
+#include "ray/raylet/scheduling/raylet_cluster_resource_storage.h"
 #include "ray/util/clock.h"
 
 namespace ray {
@@ -33,7 +34,9 @@ namespace gcs {
 // which reads them.
 struct FakeGcsResourceManagerDeps {
   instrumented_io_context io_context;
-  ClusterResourceManager cluster_resource_manager{PeriodicalRunner::Create(io_context)};
+  ray::raylet::RayletClusterResourceStorage cluster_resource_storage_;
+  ClusterResourceManager cluster_resource_manager{PeriodicalRunner::Create(io_context),
+                                                  cluster_resource_storage_};
   FakeGcsNodeManager node_manager;
 };
 

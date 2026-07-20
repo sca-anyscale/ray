@@ -24,13 +24,16 @@
 #include "ray/common/test_utils.h"
 #include "ray/gcs/fake_gcs_node_manager.h"
 #include "ray/raylet/scheduling/cluster_resource_manager.h"
+#include "ray/raylet/scheduling/raylet_cluster_resource_storage.h"
 
 namespace ray {
 
 class GcsResourceManagerTest : public ::testing::Test {
  public:
   GcsResourceManagerTest()
-      : cluster_resource_manager_(PeriodicalRunner::Create(io_service_)),
+      : cluster_resource_storage_(),
+        cluster_resource_manager_(PeriodicalRunner::Create(io_service_),
+                                  cluster_resource_storage_),
         gcs_node_manager_(std::make_unique<gcs::FakeGcsNodeManager>()) {
     gcs_resource_manager_ = std::make_shared<gcs::GcsResourceManager>(
         io_service_, cluster_resource_manager_, *gcs_node_manager_, NodeID::FromRandom());
@@ -60,6 +63,7 @@ class GcsResourceManagerTest : public ::testing::Test {
   }
 
   instrumented_io_context io_service_;
+  ray::raylet::RayletClusterResourceStorage cluster_resource_storage_;
   ClusterResourceManager cluster_resource_manager_;
   std::unique_ptr<gcs::GcsNodeManager> gcs_node_manager_;
   std::shared_ptr<gcs::GcsResourceManager> gcs_resource_manager_;

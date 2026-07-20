@@ -26,6 +26,7 @@
 #include "ray/gcs/store_client/fake_store_client.h"
 #include "ray/observability/fake_metric.h"
 #include "ray/raylet/scheduling/cluster_resource_manager.h"
+#include "ray/raylet/scheduling/raylet_cluster_resource_storage.h"
 #include "ray/util/clock.h"
 #include "ray/util/counter_map.h"
 
@@ -37,7 +38,9 @@ namespace gcs {
 class GcsPlacementGroupManagerMockTest : public ::testing::Test {
  public:
   GcsPlacementGroupManagerMockTest()
-      : cluster_resource_manager_(PeriodicalRunner::Create(io_context_)) {}
+      : cluster_resource_storage_(),
+        cluster_resource_manager_(PeriodicalRunner::Create(io_context_),
+                                  cluster_resource_storage_) {}
 
   void SetUp() override {
     store_client_ = std::make_shared<FakeStoreClient>();
@@ -69,6 +72,7 @@ class GcsPlacementGroupManagerMockTest : public ::testing::Test {
   std::shared_ptr<gcs::GcsTableStorage> gcs_table_storage_;
   std::shared_ptr<FakeStoreClient> store_client_;
   std::unique_ptr<GcsNodeManager> node_manager_;
+  ray::raylet::RayletClusterResourceStorage cluster_resource_storage_;
   ClusterResourceManager cluster_resource_manager_;
   std::shared_ptr<GcsResourceManager> resource_manager_;
   std::shared_ptr<CounterMap<rpc::PlacementGroupTableData::PlacementGroupState>> counter_;

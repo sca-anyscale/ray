@@ -117,6 +117,7 @@ ray_cc_library(
         "//src/ray/observability:fake_ray_event_recorder",
         "//src/ray/pubsub:fake_publisher",
         "//src/ray/pubsub:gcs_publisher",
+        "//src/ray/raylet/scheduling:cluster_resource_storage",
         "//src/ray/util:clock",
     ],
 )

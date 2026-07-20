@@ -14,6 +14,7 @@
 
 // clang-format off
 #include "ray/raylet/scheduling/cluster_resource_scheduler.h"
+#include "ray/raylet/scheduling/raylet_cluster_resource_storage.h"
 
 #include <string>
 #include <utility>
@@ -248,13 +249,16 @@ TEST_F(ClusterResourceSchedulerTest, SchedulingIdInsertOrDieTest) {
 TEST_F(ClusterResourceSchedulerTest, SchedulingInitClusterTest) {
   int num_nodes = 10;
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(
       PeriodicalRunner::Create(io_context),
       scheduling::NodeID(num_nodes + 1),
       NodeResources(),
       [](auto) { return true; },
       fake_gauge_,
-      clock_);
+      clock_,
+      *cluster_resource_storage.get());
   AssertPredefinedNodeResources();
 
   initCluster(resource_scheduler, num_nodes);
@@ -266,13 +270,16 @@ TEST_F(ClusterResourceSchedulerTest, SchedulingDeleteClusterNodeTest) {
   int num_nodes = 4;
   int64_t remove_id = 2;
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(
       PeriodicalRunner::Create(io_context),
       scheduling::NodeID(num_nodes + 1),
       NodeResources(),
       [](auto) { return true; },
       fake_gauge_,
-      clock_);
+      clock_,
+      *cluster_resource_storage.get());
 
   initCluster(resource_scheduler, num_nodes);
   resource_scheduler.GetClusterResourceManager().RemoveNode(
@@ -285,13 +292,16 @@ TEST_F(ClusterResourceSchedulerTest, SchedulingModifyClusterNodeTest) {
   int num_nodes = 4;
   int64_t update_id = 2;
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(
       PeriodicalRunner::Create(io_context),
       scheduling::NodeID(num_nodes + 1),
       NodeResources(),
       [](auto) { return true; },
       fake_gauge_,
-      clock_);
+      clock_,
+      *cluster_resource_storage.get());
 
   initCluster(resource_scheduler, num_nodes);
 
@@ -305,12 +315,15 @@ TEST_F(ClusterResourceSchedulerTest, NodeAffinitySchedulingStrategyTest) {
   absl::flat_hash_map<std::string, double> resource_total({{"CPU", 10}});
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               resource_total,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   AssertPredefinedNodeResources();
   auto remote_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
@@ -419,12 +432,15 @@ TEST_F(ClusterResourceSchedulerTest, SpreadSchedulingStrategyTest) {
   absl::flat_hash_map<std::string, double> resource_total({{"CPU", 10}});
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               resource_total,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   AssertPredefinedNodeResources();
   auto remote_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
@@ -463,12 +479,15 @@ TEST_F(ClusterResourceSchedulerTest, SpreadSchedulingStrategyTest) {
 TEST_F(ClusterResourceSchedulerTest, SchedulingWithPreferredNodeTest) {
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               {{"CPU", 8}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   AssertPredefinedNodeResources();
   auto remote_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   absl::flat_hash_map<std::string, double> remote_resource_total({{"CPU", 10}});
@@ -594,12 +613,15 @@ TEST_F(ClusterResourceSchedulerTest, SchedulingUpdateAvailableResourcesTest) {
                                                       {ResourceID("custom1"), 5},
                                                       {ResourceID("custom2"), 5}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               scheduling::NodeID(1),
                                               node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   AssertPredefinedNodeResources();
 
   {
@@ -646,12 +668,15 @@ TEST_F(ClusterResourceSchedulerTest, SchedulingUpdateTotalResourcesTest) {
       {ray::kCPU_ResourceLabel, 1}, {"custom1", 1}};
   std::string name = NodeID::FromRandom().Binary();
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               scheduling::NodeID(name),
                                               initial_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
                                               clock_,
+                                              *cluster_resource_storage.get(),
                                               nullptr,
                                               nullptr);
 
@@ -675,13 +700,16 @@ TEST_F(ClusterResourceSchedulerTest, SchedulingUpdateTotalResourcesTest) {
 
 TEST_F(ClusterResourceSchedulerTest, SchedulingAddOrUpdateNodeTest) {
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(
       PeriodicalRunner::Create(io_context),
       scheduling::NodeID(0),
       NodeResources(),
       [](auto) { return true; },
       fake_gauge_,
-      clock_);
+      clock_,
+      *cluster_resource_storage.get());
   NodeResources nr, nr_out;
   int64_t node_id = 1;
 
@@ -728,12 +756,15 @@ TEST_F(ClusterResourceSchedulerTest, SchedulingResourceRequestTest) {
   NodeResources node_resources = CreateNodeResources(
       {{ResourceID::CPU(), 5}, {ResourceID::Memory(), 5}, {ResourceID("custom1"), 10}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               scheduling::NodeID(0),
                                               node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   rpc::SchedulingStrategy scheduling_strategy;
   scheduling_strategy.mutable_default_scheduling_strategy();
   {
@@ -850,12 +881,15 @@ TEST_F(ClusterResourceSchedulerTest, GetLocalAvailableResourcesWithCpuUnitTest) 
                                                       {ResourceID::GPU(), 5},
                                                       {ResourceID("custom1"), 8}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               scheduling::NodeID(0),
                                               node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   NodeResourceInstanceSet available_cluster_resources =
       resource_scheduler.GetLocalResourceManager()
@@ -882,12 +916,15 @@ TEST_F(ClusterResourceSchedulerTest, GetLocalAvailableResourcesTest) {
                                                       {ResourceID::GPU(), 5},
                                                       {ResourceID("custom1"), 8}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               scheduling::NodeID(0),
                                               node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   NodeResourceInstanceSet available_cluster_resources =
       resource_scheduler.GetLocalResourceManager()
@@ -924,12 +961,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesTest) {
     NodeResources node_resources = CreateNodeResources(
         {{ResourceID::CPU(), 3}, {ResourceID::Memory(), 4}, {ResourceID::GPU(), 5}});
     instrumented_io_context io_context;
+    auto cluster_resource_storage =
+        std::make_unique<ray::raylet::RayletClusterResourceStorage>();
     ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                                 scheduling::NodeID(0),
                                                 node_resources,
                                                 is_node_available_fn_,
                                                 fake_gauge_,
-                                                clock_);
+                                                clock_,
+                                                *cluster_resource_storage.get());
 
     ResourceRequest resource_request = CreateResourceRequest(
         {{ResourceID::CPU(), 3}, {ResourceID::Memory(), 2}, {ResourceID::GPU(), 1.5}});
@@ -958,12 +998,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesTest) {
     NodeResources node_resources = CreateNodeResources(
         {{ResourceID::CPU(), 3}, {ResourceID::Memory(), 4}, {ResourceID::GPU(), 5}});
     instrumented_io_context io_context;
+    auto cluster_resource_storage =
+        std::make_unique<ray::raylet::RayletClusterResourceStorage>();
     ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                                 scheduling::NodeID(0),
                                                 node_resources,
                                                 is_node_available_fn_,
                                                 fake_gauge_,
-                                                clock_);
+                                                clock_,
+                                                *cluster_resource_storage.get());
 
     ResourceRequest resource_request = CreateResourceRequest(
         {{ResourceID::CPU(), 4}, {ResourceID::Memory(), 2}, {ResourceID::GPU(), 1.5}});
@@ -990,12 +1033,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesTest) {
                                                         {ResourceID("custom1"), 4},
                                                         {ResourceID("custom2"), 4}});
     instrumented_io_context io_context;
+    auto cluster_resource_storage =
+        std::make_unique<ray::raylet::RayletClusterResourceStorage>();
     ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                                 scheduling::NodeID(0),
                                                 node_resources,
                                                 is_node_available_fn_,
                                                 fake_gauge_,
-                                                clock_);
+                                                clock_,
+                                                *cluster_resource_storage.get());
 
     ResourceRequest resource_request =
         CreateResourceRequest({{ResourceID::CPU(), 3},
@@ -1029,12 +1075,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesTest) {
                                                         {ResourceID("custom1"), 4},
                                                         {ResourceID("custom2"), 4}});
     instrumented_io_context io_context;
+    auto cluster_resource_storage =
+        std::make_unique<ray::raylet::RayletClusterResourceStorage>();
     ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                                 scheduling::NodeID(0),
                                                 node_resources,
                                                 is_node_available_fn_,
                                                 fake_gauge_,
-                                                clock_);
+                                                clock_,
+                                                *cluster_resource_storage.get());
 
     ResourceRequest resource_request =
         CreateResourceRequest({{ResourceID::CPU(), 3},
@@ -1066,12 +1115,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesAllocationFailureTest)
                                                       {ResourceID("custom2"), 4},
                                                       {ResourceID("custom3"), 4}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               scheduling::NodeID(0),
                                               node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   ResourceRequest resource_request = CreateResourceRequest({{ResourceID("custom1"), 3},
                                                             {ResourceID("custom3"), 3},
@@ -1100,12 +1152,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesTest2) {
                                                         {ResourceID("custom1"), 4},
                                                         {ResourceID("custom2"), 4}});
     instrumented_io_context io_context;
+    auto cluster_resource_storage =
+        std::make_unique<ray::raylet::RayletClusterResourceStorage>();
     ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                                 scheduling::NodeID(0),
                                                 node_resources,
                                                 is_node_available_fn_,
                                                 fake_gauge_,
-                                                clock_);
+                                                clock_,
+                                                *cluster_resource_storage.get());
 
     ResourceRequest resource_request =
         CreateResourceRequest({{ResourceID::CPU(), 2},
@@ -1137,12 +1192,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesTest2) {
 
 TEST_F(ClusterResourceSchedulerTest, DeadNodeTest) {
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
-                                              scheduling::NodeID("local"),
+                                              scheduling::NodeID(1),
                                               absl::flat_hash_map<std::string, double>{},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   absl::flat_hash_map<std::string, double> resource;
   resource["CPU"] = 10000.0;
   auto node_id = NodeID::FromRandom();
@@ -1183,12 +1241,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskGPUResourceInstancesTest) {
                                                         {ResourceID::Memory(), 1},
                                                         {ResourceID::GPU(), 4},
                                                         {ResourceID("custom1"), 8}});
+    auto cluster_resource_storage =
+        std::make_unique<ray::raylet::RayletClusterResourceStorage>();
     ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                                 scheduling::NodeID(0),
                                                 node_resources,
                                                 is_node_available_fn_,
                                                 fake_gauge_,
-                                                clock_);
+                                                clock_,
+                                                *cluster_resource_storage.get());
 
     std::vector<double> allocate_gpu_instances{0.5, 0.5, 0.5, 0.5};
     resource_scheduler.GetLocalResourceManager().SubtractResourceInstances(
@@ -1266,12 +1327,15 @@ TEST_F(ClusterResourceSchedulerTest,
                                                         {ResourceID::GPU(), 4},
                                                         {ResourceID("custom1"), 8}});
     instrumented_io_context io_context;
+    auto cluster_resource_storage =
+        std::make_unique<ray::raylet::RayletClusterResourceStorage>();
     ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                                 scheduling::NodeID(0),
                                                 node_resources,
                                                 is_node_available_fn_,
                                                 fake_gauge_,
-                                                clock_);
+                                                clock_,
+                                                *cluster_resource_storage.get());
 
     {
       std::vector<double> allocate_gpu_instances{0.5, 0.5, 2, 0.5};
@@ -1323,12 +1387,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstanceWithHardRequestTest) {
   NodeResources node_resources = CreateNodeResources(
       {{ResourceID::CPU(), 4}, {ResourceID::Memory(), 2}, {ResourceID::GPU(), 4}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               scheduling::NodeID(0),
                                               node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   ResourceRequest resource_request = CreateResourceRequest(
       {{ResourceID::CPU(), 2}, {ResourceID::Memory(), 2}, {ResourceID::GPU(), 1.5}});
@@ -1351,12 +1418,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstanceWithoutCpuUnitTest) {
   NodeResources node_resources = CreateNodeResources(
       {{ResourceID::CPU(), 4}, {ResourceID::Memory(), 2}, {ResourceID::GPU(), 4}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               scheduling::NodeID(0),
                                               node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   ResourceRequest resource_request = CreateResourceRequest(
       {{ResourceID::CPU(), 2}, {ResourceID::Memory(), 2}, {ResourceID::GPU(), 1.5}});
@@ -1378,12 +1448,15 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstanceWithoutCpuUnitTest) {
 TEST_F(ClusterResourceSchedulerTest, TestAlwaysSpillInfeasibleTask) {
   absl::flat_hash_map<std::string, double> resource_spec({{"CPU", 1}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
-                                              scheduling::NodeID("local"),
+                                              scheduling::NodeID(1),
                                               absl::flat_hash_map<std::string, double>{},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   for (int i = 0; i < 100; i++) {
     resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
         scheduling::NodeID(NodeID::FromRandom().Binary()), {}, {});
@@ -1450,12 +1523,15 @@ TEST_F(ClusterResourceSchedulerTest, ObjectStoreMemoryUsageTest) {
   int64_t used_object_store_memory = 250 * 1024 * 1024;
   int64_t *ptr = &used_object_store_memory;
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
-                                              scheduling::NodeID("0"),
+                                              scheduling::NodeID(0),
                                               initial_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
                                               clock_,
+                                              *cluster_resource_storage.get(),
                                               [&] { return *ptr; });
   NodeResources other_node_resources = CreateNodeResources({{ResourceID::CPU(), 1},
                                                             {ResourceID::Memory(), 1},
@@ -1527,12 +1603,15 @@ TEST_F(ClusterResourceSchedulerTest, ObjectStoreMemoryUsageTest) {
 TEST_F(ClusterResourceSchedulerTest, DirtyLocalViewTest) {
   absl::flat_hash_map<std::string, double> initial_resources({{"CPU", 1}});
   instrumented_io_context io_service;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_service),
-                                              scheduling::NodeID("local"),
+                                              scheduling::NodeID(1),
                                               initial_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   auto remote = scheduling::NodeID(NodeID::FromRandom().Binary());
   resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
       remote, {{"CPU", 2.}}, {{"CPU", 2.}});
@@ -1594,12 +1673,15 @@ TEST_F(ClusterResourceSchedulerTest, DirtyLocalViewTest) {
 
 TEST_F(ClusterResourceSchedulerTest, DynamicResourceTest) {
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
-                                              scheduling::NodeID("local"),
+                                              scheduling::NodeID(1),
                                               {{"CPU", 2}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   absl::flat_hash_map<std::string, double> resource_request = {{"CPU", 1},
                                                                {"custom123", 2}};
@@ -1676,12 +1758,15 @@ TEST_F(ClusterResourceSchedulerTest, DynamicResourceTest) {
 
 TEST_F(ClusterResourceSchedulerTest, AvailableResourceEmptyTest) {
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
-                                              scheduling::NodeID("local"),
+                                              scheduling::NodeID(1),
                                               {{"custom123", 5}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   std::shared_ptr<TaskResourceInstances> resource_instances =
       std::make_shared<TaskResourceInstances>();
   absl::flat_hash_map<std::string, double> resource_request = {{"custom123", 5}};
@@ -1696,12 +1781,15 @@ TEST_F(ClusterResourceSchedulerTest, AvailableResourceEmptyTest) {
 TEST_F(ClusterResourceSchedulerTest, TestForceSpillback) {
   absl::flat_hash_map<std::string, double> resource_spec({{"CPU", 1}});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
-                                              scheduling::NodeID("local"),
+                                              scheduling::NodeID(1),
                                               resource_spec,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   std::vector<scheduling::NodeID> node_ids;
   for (int i = 0; i < 100; i++) {
     node_ids.emplace_back(NodeID::FromRandom().Binary());
@@ -1724,7 +1812,7 @@ TEST_F(ClusterResourceSchedulerTest, TestForceSpillback) {
                                                       std::string(),
                                                       &total_violations,
                                                       &is_infeasible),
-            scheduling::NodeID("local"));
+            scheduling::NodeID(1));
   // If spillback is forced, we try to spill to remote, but only if there is a
   // schedulable node.
   ASSERT_EQ(resource_scheduler.GetBestSchedulableNode(resource_spec,
@@ -1767,12 +1855,15 @@ TEST_F(ClusterResourceSchedulerTest, TestForceSpillback) {
 TEST_F(ClusterResourceSchedulerTest, CustomResourceInstanceTest) {
   SetUnitInstanceResourceIds({ResourceID("FPGA")});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
-                                              scheduling::NodeID("local"),
+                                              scheduling::NodeID(1),
                                               {{"CPU", 4}, {"FPGA", 2}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   auto fpga_resource_id = ResourceID("FPGA");
 
@@ -1800,12 +1891,15 @@ TEST_F(ClusterResourceSchedulerTest, CustomResourceInstanceTest) {
 TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesSerializedStringTest) {
   SetUnitInstanceResourceIds({ResourceID("GPU")});
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
-                                              scheduling::NodeID("local"),
+                                              scheduling::NodeID(1),
                                               {{"CPU", 4}, {"memory", 4}, {"GPU", 2}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   std::shared_ptr<TaskResourceInstances> cluster_resources =
       std::make_shared<TaskResourceInstances>();
   cluster_resources->Set(ResourceID::CPU(), {2.});
@@ -1824,11 +1918,12 @@ TEST_F(ClusterResourceSchedulerTest, TaskResourceInstancesSerializedStringTest) 
   cluster_instance_resources->Set(ResourceID::GPU(), {1., 1.});
   ClusterResourceScheduler resource_scheduler_cpu_instance(
       PeriodicalRunner::Create(io_context),
-      scheduling::NodeID("local"),
+      scheduling::NodeID(1),
       {{"CPU", 4}, {"memory", 4}, {"GPU", 2}},
       is_node_available_fn_,
       fake_gauge_,
-      clock_);
+      clock_,
+      *cluster_resource_storage.get());
   std::string instance_serialized_string = cluster_instance_resources->SerializeAsJson();
   std::string expected_instance_serialized_string =
       R"({"CPU":[10000, 10000],"memory":40000,"GPU":[10000, 10000]})";
@@ -1848,12 +1943,15 @@ TEST_F(ClusterResourceSchedulerTest, AffinityWithBundleScheduleTest) {
   NodeResources node_resources =
       NodeResources(NodeResourceSet(bundle_resource_request.ToResourceMap()));
   instrumented_io_context io_service;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_service),
                                               scheduling::NodeID(node_1.Binary()),
                                               node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   ResourceRequest bundle_resource_request_2 =
       CreateResourceRequest(AddPlacementGroupConstraint(
           {{"CPU", 1}, {"memory", 100}}, bundle_2.first, bundle_2.second));
@@ -1906,12 +2004,15 @@ TEST_F(ClusterResourceSchedulerTest, LabelSelectorIsSchedulableOnNodeTest) {
   absl::flat_hash_map<std::string, double> resource_total({{"CPU", 10}});
   auto node_1 = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               node_1,
                                               resource_total,
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
   resource_scheduler.GetClusterResourceManager().AddOrUpdateNode(
       node_1, resource_total, resource_total);
 
@@ -1994,12 +2095,15 @@ TEST_F(ClusterResourceSchedulerTest, LabelSelectorHardNodeAffinityTest) {
   NodeResources node_resources = CreateNodeResources(node_resources_map);
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               {{"CPU", 0}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   auto node_0_id_obj = NodeID::FromRandom();
   auto node_1_id_obj = NodeID::FromRandom();
@@ -2094,12 +2198,15 @@ TEST_F(ClusterResourceSchedulerTest, ScheduleWithFallbackStrategyTest) {
   // Setup scheduler with two nodes with resources and unique labels.
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               {{"CPU", 1}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   absl::flat_hash_map<std::string, double> resources({{"CPU", 1}});
 
@@ -2184,12 +2291,15 @@ TEST_F(ClusterResourceSchedulerTest, FallbackStrategyWithUnavailableNodesTest) {
   // Setup 2 nodes, both of which are unavailable for scheduling.
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               {{"CPU", 1}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   auto node_A100 = scheduling::NodeID(NodeID::FromRandom().Binary());
   auto node_TPU = scheduling::NodeID(NodeID::FromRandom().Binary());
@@ -2272,12 +2382,15 @@ TEST_F(ClusterResourceSchedulerTest,
        FallbackSchedulesAvailableNodeOverUnavailablePrimary) {
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               {{"CPU", 1}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   absl::flat_hash_map<std::string, double> unavailable_resources({{"CPU", 0}});
   absl::flat_hash_map<std::string, double> available_resources({{"CPU", 1}});
@@ -2352,12 +2465,15 @@ TEST_F(ClusterResourceSchedulerTest,
 TEST_F(ClusterResourceSchedulerTest, FallbackWaitsOnUnavailableHighestPriority) {
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               {{"CPU", 1}},
                                               is_node_available_fn_,
                                               fake_gauge_,
-                                              clock_);
+                                              clock_,
+                                              *cluster_resource_storage.get());
 
   absl::flat_hash_map<std::string, double> total_resources({{"CPU", 1}});
   absl::flat_hash_map<std::string, double> unavailable_resources({{"CPU", 0}});
@@ -2435,12 +2551,15 @@ TEST_F(ClusterResourceSchedulerTest, FallbackReturnsNilForGCSIfAllNodesUnavailab
   NodeResources local_node_resources = CreateNodeResources(local_res_map);
   auto local_node_id = scheduling::NodeID(NodeID::FromRandom().Binary());
   instrumented_io_context io_context;
+  auto cluster_resource_storage =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   ClusterResourceScheduler resource_scheduler(PeriodicalRunner::Create(io_context),
                                               local_node_id,
                                               local_node_resources,
                                               is_node_available_fn_,
                                               fake_gauge_,
                                               clock_,
+                                              *cluster_resource_storage.get(),
                                               /*is_local_node_with_raylet=*/false);
 
   absl::flat_hash_map<std::string, double> total_resources({{"CPU", 1}});
