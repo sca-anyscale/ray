@@ -78,7 +78,7 @@ void ClusterResourceManager::AddOrUpdateNode(scheduling::NodeID node_id,
     it->second = Node(node_resources);
   }
 
-  UpdateStoredResources(node_id, node_resources);
+  cluster_resource_storage_.UpdateStoredResources(node_id, node_resources);
 }
 
 bool ClusterResourceManager::UpdateNode(
@@ -123,12 +123,7 @@ bool ClusterResourceManager::UpdateNode(
 bool ClusterResourceManager::RemoveNode(scheduling::NodeID node_id) {
   received_node_resources_.erase(node_id);
 
-  auto binary = node_id.Binary();
-  // we can see this in tests, since integer IDs don't get added to the map
-  if (binary != "-1") {
-    auto ray_node_id = NodeID::FromBinary(binary);
-    cluster_resource_storage_.Delete(ray_node_id);
-  }
+  cluster_resource_storage_.DeleteStoredResources(node_id);
 
   return nodes_.erase(node_id) != 0;
 }
@@ -150,7 +145,7 @@ bool ClusterResourceManager::SetNodeDraining(const scheduling::NodeID &node_id,
     rnr_it->second.draining_deadline_timestamp_ms = draining_deadline_timestamp_ms;
   }
 
-  UpdateStoredResources(node_id, it->second.GetLocalView());
+  cluster_resource_storage_.UpdateStoredResources(node_id, it->second.GetLocalView());
   return true;
 }
 
@@ -198,7 +193,7 @@ void ClusterResourceManager::UpdateResourceCapacity(scheduling::NodeID node_id,
   local_view->total.Set(resource_id, total);
   local_view->available.Set(resource_id, available);
 
-  UpdateStoredResources(node_id, it->second.GetLocalView());
+  cluster_resource_storage_.UpdateStoredResources(node_id, it->second.GetLocalView());
 }
 
 void ClusterResourceManager::ReleaseResources(scheduling::NodeID node_id,
@@ -216,41 +211,7 @@ void ClusterResourceManager::ReleaseResources(scheduling::NodeID node_id,
     local_view->available.Set(ResourceID(resource_id), new_value);
   }
 
-  UpdateStoredResources(node_id, it->second.GetLocalView());
-}
-
-void ClusterResourceManager::UpdateStoredResources(const scheduling::NodeID node_id,
-                                                   const NodeResources &node_resources) {
-  auto resource_data = rpc::ResourcesData();
-  auto binary = node_id.Binary();
-  if (binary == "-1") {
-    // we can see this in tests, since integer IDs don't get added to the map
-    return;
-  }
-  auto ray_node_id = NodeID::FromBinary(binary);
-  FillResourceUsage(ray_node_id, node_resources, &resource_data);
-  cluster_resource_storage_.Put(ray_node_id, resource_data);
-}
-
-void ClusterResourceManager::FillResourceUsage(const ray::NodeID node_id,
-                                               const NodeResources &node_resources,
-                                               rpc::ResourcesData *data) {
-  // This populates usage information.
-  data->set_node_id(node_id.Binary());
-
-  auto total = node_resources.total.GetResourceMap();
-  data->mutable_resources_total()->insert(total.begin(), total.end());
-
-  auto available = node_resources.available.GetResourceMap();
-  data->mutable_resources_available()->insert(available.begin(), available.end());
-
-  data->mutable_labels()->insert(node_resources.labels.begin(),
-                                 node_resources.labels.end());
-
-  data->set_object_pulls_queued(node_resources.object_pulls_queued);
-  data->set_idle_duration_ms(node_resources.idle_resource_duration_ms);
-  data->set_is_draining(node_resources.is_draining);
-  data->set_draining_deadline_timestamp_ms(node_resources.draining_deadline_timestamp_ms);
+  cluster_resource_storage_.UpdateStoredResources(node_id, it->second.GetLocalView());
 }
 
 bool ClusterResourceManager::DeleteResources(
@@ -266,7 +227,7 @@ bool ClusterResourceManager::DeleteResources(
     local_view->available.Set(resource_id, 0);
   }
 
-  UpdateStoredResources(node_id, it->second.GetLocalView());
+  cluster_resource_storage_.UpdateStoredResources(node_id, it->second.GetLocalView());
   return true;
 }
 
@@ -297,7 +258,7 @@ bool ClusterResourceManager::SubtractNodeAvailableResources(
   // arguments. Right now we do not modify object_pulls_queued in case of
   // performance regressions in spillback.
 
-  UpdateStoredResources(node_id, it->second.GetLocalView());
+  cluster_resource_storage_.UpdateStoredResources(node_id, it->second.GetLocalView());
   return true;
 }
 
@@ -343,7 +304,7 @@ bool ClusterResourceManager::AddNodeAvailableResources(scheduling::NodeID node_i
       node_resources->available.Set(resource_id, new_available);
     }
   }
-  UpdateStoredResources(node_id, it->second.GetLocalView());
+  cluster_resource_storage_.UpdateStoredResources(node_id, it->second.GetLocalView());
   return true;
 }
 
@@ -378,7 +339,7 @@ void ClusterResourceManager::SetNodeLabels(
   }
   it->second.GetMutableLocalView()->labels = std::move(labels);
 
-  UpdateStoredResources(node_id, it->second.GetLocalView());
+  cluster_resource_storage_.UpdateStoredResources(node_id, it->second.GetLocalView());
 }
 
 const absl::flat_hash_map<std::string, std::string>
@@ -395,22 +356,6 @@ FixedPoint ClusterResourceManager::GetNodeTotalResources(
 
 void ClusterResourceManager::RecordMetrics() const {
   local_resource_view_node_count_gauge_.Record(static_cast<double>(nodes_.size()));
-}
-
-NodeResources ClusterResourceManager::NodeResourcesFromResourcesData(
-    rpc::ResourcesData resources) {
-  auto total = MapFromProtobuf(resources.resources_total());
-  auto available = MapFromProtobuf(resources.resources_available());
-  auto labels = MapFromProtobuf(resources.labels());
-  auto node_resources = ResourceMapToNodeResources(total, available, labels);
-
-  node_resources.is_draining = resources.is_draining();
-  node_resources.draining_deadline_timestamp_ms =
-      resources.draining_deadline_timestamp_ms();
-  node_resources.object_pulls_queued = resources.object_pulls_queued();
-  node_resources.idle_resource_duration_ms = resources.idle_duration_ms();
-
-  return node_resources;
 }
 
 }  // namespace ray
