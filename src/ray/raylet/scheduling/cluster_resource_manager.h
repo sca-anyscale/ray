@@ -81,6 +81,20 @@ class ClusterResourceManager {
                               scheduling::ResourceID resource_id,
                               double resource_total);
 
+  /// Update available capacity of a given resource of a given node.
+  ///
+  /// \param node_id: Node whose resources we want to update.
+  /// \param resources: Resource set with the resources that we want to update.
+  void ReleaseResources(scheduling::NodeID node_id, const ResourceRequest &resources);
+
+  /// Delete a given resource from a given node.
+  ///
+  /// \param node_id: Node whose resource we want to delete.
+  /// \param resource_ids: Resource id list we want to delete
+  /// \return True if the node exist, else False.
+  bool DeleteResources(scheduling::NodeID node_id,
+                       const std::vector<scheduling::ResourceID> &resource_ids);
+
   /// Return local resources in human-readable string form.
   std::string GetNodeResourceViewString(scheduling::NodeID node_id) const;
 
