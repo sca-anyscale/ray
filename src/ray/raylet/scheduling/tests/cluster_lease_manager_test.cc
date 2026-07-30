@@ -459,7 +459,9 @@ class ClusterLeaseManagerTest : public ::testing::Test {
     RayConfig::instance().initialize("{\"scheduler_top_k_absolute\": 1}");
   }
 
-  void SetUp() {}
+  void SetUp() {
+    RayConfig::instance().initialize(R"({"centralized_actor_scheduling": false})");
+  }
 
   RayObject *MakeDummyArg() {
     std::vector<uint8_t> data;
