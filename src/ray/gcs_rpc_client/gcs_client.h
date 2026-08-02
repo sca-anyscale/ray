@@ -28,6 +28,7 @@
 #include "ray/gcs_rpc_client/accessor.h"
 #include "ray/gcs_rpc_client/accessor_factory_interface.h"
 #include "ray/gcs_rpc_client/accessors/actor_info_accessor_interface.h"
+#include "ray/gcs_rpc_client/accessors/worker_lease_accessor_interface.h"
 #include "ray/gcs_rpc_client/gcs_client_context.h"
 #include "ray/gcs_rpc_client/rpc_client.h"
 #include "ray/pubsub/gcs_subscriber.h"
@@ -224,6 +225,11 @@ class RAY_EXPORT GcsClient : public std::enable_shared_from_this<GcsClient> {
     return *publisher_accessor_;
   }
 
+  WorkerLeaseAccessorInterface &WorkerLeases() {
+    RAY_CHECK(worker_lease_accessor_ != nullptr);
+    return *worker_lease_accessor_;
+  }
+
   // Gets ClusterID. If it's not set in Connect(), blocks on a sync RPC to GCS to get it.
   virtual ClusterID GetClusterId() const;
 
@@ -260,6 +266,7 @@ class RAY_EXPORT GcsClient : public std::enable_shared_from_this<GcsClient> {
   std::unique_ptr<RuntimeEnvAccessor> runtime_env_accessor_;
   std::unique_ptr<AutoscalerStateAccessor> autoscaler_state_accessor_;
   std::unique_ptr<PublisherAccessor> publisher_accessor_;
+  std::unique_ptr<WorkerLeaseAccessorInterface> worker_lease_accessor_;
 
  private:
   /// If client_call_manager_ does not have a cluster ID, fetches it from GCS. The

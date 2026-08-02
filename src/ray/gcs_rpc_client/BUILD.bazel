@@ -16,6 +16,7 @@ ray_cc_library(
         ":gcs_client_context",
         ":gcs_client_defaults",
         ":rpc_client",
+        ":worker_accessor_interface",
         "//src/ray/asio:instrumented_io_context",
         "//src/ray/common:id",
         "//src/ray/common:placement_group",
@@ -66,6 +67,23 @@ ray_cc_library(
 )
 
 ray_cc_library(
+    name = "worker_accessor_interface",
+    hdrs = [
+        "accessors/worker_lease_accessor_interface.h",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//src/ray/common:id",
+        "//src/ray/common:placement_group",
+        "//src/ray/common:task_common",
+        "//src/ray/protobuf:autoscaler_cc_proto",
+        "//src/ray/protobuf:gcs_cc_proto",
+        "//src/ray/protobuf:lease_cc_proto",
+        "//src/ray/rpc:rpc_callback_types",
+    ],
+)
+
+ray_cc_library(
     name = "gcs_client_context",
     hdrs = [
         "gcs_client_context.h",
@@ -106,6 +124,34 @@ ray_cc_library(
 )
 
 ray_cc_library(
+    name = "worker_accessor_implementation",
+    srcs = [
+        "accessors/worker_lease_accessor.cc",
+    ],
+    hdrs = [
+        "accessors/worker_lease_accessor.h",
+    ],
+    visibility = [":__pkg__"],
+    deps = [
+        ":gcs_client_context",
+        ":rpc_client",
+        ":worker_accessor_interface",
+        "//src/ray/common:id",
+        "//src/ray/common:placement_group",
+        "//src/ray/common:protobuf_utils",
+        "//src/ray/gcs/store_client:redis_store_client",
+        "//src/ray/protobuf:usage_cc_proto",
+        "//src/ray/pubsub:gcs_subscriber",
+        "//src/ray/pubsub:subscriber",
+        "//src/ray/util:container_util",
+        "//src/ray/util:network_util",
+        "//src/ray/util:sequencer",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+    ],
+)
+
+ray_cc_library(
     name = "gcs_client_defaults",
     srcs = [
         "default_accessor_factory.cc",
@@ -121,6 +167,8 @@ ray_cc_library(
         ":actor_accessor_implementation",
         ":actor_accessor_interface",
         ":gcs_client_context",
+        ":worker_accessor_implementation",
+        ":worker_accessor_interface",
     ],
 )
 
