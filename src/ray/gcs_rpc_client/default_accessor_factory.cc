@@ -15,6 +15,7 @@
 #include "ray/gcs_rpc_client/default_accessor_factory.h"
 
 #include "ray/gcs_rpc_client/accessors/actor_info_accessor.h"
+#include "ray/gcs_rpc_client/accessors/worker_lease_accessor.h"
 
 namespace ray {
 namespace gcs {
@@ -22,6 +23,11 @@ namespace gcs {
 std::unique_ptr<ActorInfoAccessorInterface>
 DefaultAccessorFactory::CreateActorInfoAccessor(GcsClientContext *context) {
   return std::make_unique<ActorInfoAccessor>(context);
+}
+
+std::unique_ptr<WorkerLeaseAccessorInterface>
+DefaultAccessorFactory::CreateWorkerLeaseAccessor(GcsClientContext *context) {
+  return std::make_unique<WorkerLeaseAccessor>(context);
 }
 
 }  // namespace gcs

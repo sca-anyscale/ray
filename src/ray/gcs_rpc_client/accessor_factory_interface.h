@@ -21,6 +21,7 @@ namespace gcs {
 
 // Forward declarations for accessor interfaces
 class ActorInfoAccessorInterface;
+class WorkerLeaseAccessorInterface;
 class GcsClientContext;
 
 /**
@@ -40,6 +41,16 @@ class AccessorFactoryInterface {
     ActorInfoAccessor.
    */
   virtual std::unique_ptr<ActorInfoAccessorInterface> CreateActorInfoAccessor(
+      GcsClientContext *context) = 0;
+
+  /**
+    Create a WorkerLeaseAccessor instance.
+
+    @param context The GCS client implementation.
+    @return unique_ptr<WorkerLeaseAccessorInterface> A unique pointer to the created
+    WorkerLeaseAccessor.
+   */
+  virtual std::unique_ptr<WorkerLeaseAccessorInterface> CreateWorkerLeaseAccessor(
       GcsClientContext *context) = 0;
 };
 
