@@ -32,6 +32,9 @@ class DefaultAccessorFactory : public AccessorFactoryInterface {
 
   std::unique_ptr<ActorInfoAccessorInterface> CreateActorInfoAccessor(
       GcsClientContext *context) override;
+
+  std::unique_ptr<WorkerLeaseAccessorInterface> CreateWorkerLeaseAccessor(
+      GcsClientContext *context) override;
 };
 
 }  // namespace gcs
