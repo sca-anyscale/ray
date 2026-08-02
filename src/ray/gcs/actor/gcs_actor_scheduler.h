@@ -38,7 +38,6 @@
 #include "src/ray/protobuf/common.pb.h"
 #include "src/ray/protobuf/core_worker.pb.h"
 #include "src/ray/protobuf/gcs.pb.h"
-#include "src/ray/protobuf/node_manager.pb.h"
 
 namespace ray {
 using raylet::ClusterLeaseManager;
