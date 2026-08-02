@@ -96,6 +96,21 @@ proto_library(
     srcs = ["dependency.proto"],
 )
 
+# Common lease messages
+proto_library(
+    name = "lease_proto",
+    srcs = ["lease.proto"],
+    deps = [
+        ":common_proto",
+        ":gcs_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "lease_cc_proto",
+    deps = [":lease_proto"],
+)
+
 # Text logging.
 proto_library(
     name = "logging_proto",
@@ -114,6 +129,7 @@ proto_library(
         ":autoscaler_proto",
         ":common_proto",
         ":gcs_proto",
+        ":lease_proto",
         "//src/ray/protobuf/public:runtime_environment_proto",
     ],
 )
@@ -158,6 +174,7 @@ proto_library(
         ":common_proto",
         ":events_event_aggregator_service_proto",
         ":gcs_proto",
+        ":lease_proto",
         ":pubsub_proto",
     ],
 )

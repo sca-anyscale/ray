@@ -18,6 +18,7 @@ package ray.rpc;
 
 import "src/ray/protobuf/common.proto";
 import "src/ray/protobuf/gcs.proto";
+import "src/ray/protobuf/lease.proto";
 import "src/ray/protobuf/pubsub.proto";
 import "src/ray/protobuf/events_event_aggregator_service.proto";
 
@@ -398,6 +399,43 @@ service WorkerInfoGcsService {
   // Update the worker number of paused threads in the GCS Service.
   rpc UpdateWorkerNumPausedThreads(UpdateWorkerNumPausedThreadsRequest)
       returns (UpdateWorkerNumPausedThreadsReply);
+}
+
+message GcsRequestWorkerLeaseRequest {
+  RequestWorkerLeaseRequest request = 1;
+}
+
+message GcsRequestWorkerLeaseReply {
+  GcsStatus status = 1;
+  RequestWorkerLeaseReply reply = 2;
+}
+
+message GcsReturnWorkerLeaseRequest {
+  ReturnWorkerLeaseRequest request = 1;
+}
+
+message GcsReturnWorkerLeaseReply {
+  GcsStatus status = 1;
+  ReturnWorkerLeaseReply reply = 2;
+}
+
+message GcsCancelWorkerLeaseRequest {
+  CancelWorkerLeaseRequest request = 1;
+}
+
+message GcsCancelWorkerLeaseReply {
+  GcsStatus status = 1;
+  CancelWorkerLeaseReply reply = 2;
+}
+
+// Service for worker lease operations
+service WorkerLeaseGcsService {
+  // Request a worker lease
+  rpc GcsRequestWorkerLease(GcsRequestWorkerLeaseRequest) returns (GcsRequestWorkerLeaseReply);
+  // Return a worker lease
+  rpc GcsReturnWorkerLease(GcsReturnWorkerLeaseRequest) returns (GcsReturnWorkerLeaseReply);
+  // Cancel a worker lease
+  rpc GcsCancelWorkerLease(GcsCancelWorkerLeaseRequest) returns (GcsCancelWorkerLeaseReply);
 }
 
 message CreateActorRequest {
