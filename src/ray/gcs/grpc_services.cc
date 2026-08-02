@@ -151,6 +151,20 @@ void WorkerInfoGrpcService::InitServerCallFactories(
       WorkerInfoGcsService, UpdateWorkerNumPausedThreads, max_active_rpcs_per_handler_)
 }
 
+void WorkerLeaseGrpcService::InitServerCallFactories(
+    const std::unique_ptr<grpc::ServerCompletionQueue> &cq,
+    std::vector<std::unique_ptr<ServerCallFactory>> *server_call_factories,
+    const ClusterID &cluster_id,
+    std::shared_ptr<const AuthenticationToken> auth_token,
+    GrpcServerMetrics &server_metrics) {
+  RPC_SERVICE_HANDLER(
+      WorkerLeaseGcsService, GcsRequestWorkerLease, max_active_rpcs_per_handler_)
+  RPC_SERVICE_HANDLER(
+      WorkerLeaseGcsService, GcsReturnWorkerLease, max_active_rpcs_per_handler_)
+  RPC_SERVICE_HANDLER(
+      WorkerLeaseGcsService, GcsCancelWorkerLease, max_active_rpcs_per_handler_)
+}
+
 void InternalKVGrpcService::InitServerCallFactories(
     const std::unique_ptr<grpc::ServerCompletionQueue> &cq,
     std::vector<std::unique_ptr<ServerCallFactory>> *server_call_factories,

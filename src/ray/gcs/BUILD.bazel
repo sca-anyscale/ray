@@ -371,6 +371,7 @@ ray_cc_library(
     ],
     visibility = [":__subpackages__"],
     deps = [
+        "//src/ray/common:id",
         "//src/ray/common:status",
         "//src/ray/protobuf:autoscaler_cc_grpc",
         "//src/ray/protobuf:gcs_service_cc_grpc",
