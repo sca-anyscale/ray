@@ -178,6 +178,8 @@ Status GcsClient::Connect(instrumented_io_context &io_service, int64_t timeout_m
   runtime_env_accessor_ = std::make_unique<RuntimeEnvAccessor>(this);
   autoscaler_state_accessor_ = std::make_unique<AutoscalerStateAccessor>(this);
   publisher_accessor_ = std::make_unique<PublisherAccessor>(this);
+  worker_lease_accessor_ =
+      accessor_factory_->CreateWorkerLeaseAccessor(client_context_.get());
 
   resubscribe_func_ = [this]() {
     RAY_LOG(INFO) << "Resubscribing to GCS tables.";

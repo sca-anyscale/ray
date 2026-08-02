@@ -17,6 +17,8 @@
 #include "ray/gcs_rpc_client/accessor_factory_interface.h"
 #include "ray/gcs_rpc_client/accessors/actor_info_accessor.h"
 #include "ray/gcs_rpc_client/accessors/actor_info_accessor_interface.h"
+#include "ray/gcs_rpc_client/accessors/worker_lease_accessor.h"
+#include "ray/gcs_rpc_client/accessors/worker_lease_accessor_interface.h"
 #include "ray/gcs_rpc_client/gcs_client.h"
 #include "ray/gcs_rpc_client/gcs_client_context.h"
 #include "ray/gcs_rpc_client/rpc_client.h"
@@ -159,6 +161,31 @@ class TestActorInfoAccessor : public ActorInfoAccessorInterface {
   bool is_fake_;
 };
 
+class TestWorkerLeaseAccessor : public WorkerLeaseAccessorInterface {
+ public:
+  explicit TestWorkerLeaseAccessor(GcsClientContext *client_impl) : is_fake_(true) {}
+  ~TestWorkerLeaseAccessor() override = default;
+
+  bool IsFake() const { return is_fake_; }
+
+  void RequestWorkerLease(
+      rpc::RequestWorkerLeaseRequest &&request,
+      const rpc::ClientCallback<rpc::RequestWorkerLeaseReply> &callback) override{};
+
+  void ReturnWorkerLease(int worker_port,
+                         const LeaseID &lease_id,
+                         bool disconnect_worker,
+                         const std::string &disconnect_worker_error_detail,
+                         bool worker_exiting) override{};
+
+  void CancelWorkerLease(
+      const LeaseID &lease_id,
+      const rpc::ClientCallback<rpc::CancelWorkerLeaseReply> &callback) override{};
+
+ private:
+  bool is_fake_;
+};
+
 // Custom AccessorFactory that provides FakeActorInfoAccessor
 class MixedAccessorFactory : public AccessorFactoryInterface {
  public:
@@ -169,6 +196,12 @@ class MixedAccessorFactory : public AccessorFactoryInterface {
       GcsClientContext *client_impl) override {
     // Return mock implementation
     return std::make_unique<TestActorInfoAccessor>(client_impl);
+  }
+
+  std::unique_ptr<WorkerLeaseAccessorInterface> CreateWorkerLeaseAccessor(
+      GcsClientContext *client_impl) override {
+    // Return mock implementation
+    return std::make_unique<TestWorkerLeaseAccessor>(client_impl);
   }
 };
 
@@ -199,6 +232,12 @@ TEST(GcsClientInjectableTest, AccessorFactoryReturnsInjectedAccessorIfDefaultOve
   auto fake_actor_accessor = dynamic_cast<TestActorInfoAccessor *>(&actor_accessor);
   ASSERT_NE(fake_actor_accessor, nullptr);
   EXPECT_TRUE(fake_actor_accessor->IsFake());
+
+  // Verify that NodeInfoAccessor is the fake implementation
+  auto &worker_accessor = gcs_client.WorkerLeases();
+  auto fake_worker_accessor = dynamic_cast<TestWorkerLeaseAccessor *>(&worker_accessor);
+  ASSERT_NE(fake_worker_accessor, nullptr);
+  EXPECT_TRUE(fake_worker_accessor->IsFake());
 }
 
 }  // namespace gcs

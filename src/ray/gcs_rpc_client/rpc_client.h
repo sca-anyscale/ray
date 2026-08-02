@@ -167,6 +167,8 @@ class GcsRpcClient {
             channel_, client_call_manager, address);
     worker_info_grpc_client_ = std::make_shared<GrpcClient<WorkerInfoGcsService>>(
         channel_, client_call_manager, address);
+    worker_lease_grpc_client_ = std::make_shared<GrpcClient<WorkerLeaseGcsService>>(
+        channel_, client_call_manager, address);
     placement_group_info_grpc_client_ =
         std::make_shared<GrpcClient<PlacementGroupInfoGcsService>>(
             channel_, client_call_manager, address);
@@ -590,6 +592,24 @@ class GcsRpcClient {
                              runtime_env_grpc_client_,
                              /*method_timeout_ms*/ -1, )
 
+  /// Request a worker lease from GCS
+  VOID_GCS_RPC_CLIENT_METHOD(WorkerLeaseGcsService,
+                             GcsRequestWorkerLease,
+                             worker_lease_grpc_client_,
+                             /*method_timeout_ms*/ -1, )
+
+  /// Return a worker lease to GCS
+  VOID_GCS_RPC_CLIENT_METHOD(WorkerLeaseGcsService,
+                             GcsReturnWorkerLease,
+                             worker_lease_grpc_client_,
+                             /*method_timeout_ms*/ -1, )
+
+  /// Cancel a GCS worker lease
+  VOID_GCS_RPC_CLIENT_METHOD(WorkerLeaseGcsService,
+                             GcsCancelWorkerLease,
+                             worker_lease_grpc_client_,
+                             /*method_timeout_ms*/ -1, )
+
   std::pair<std::string, int64_t> GetAddress() const {
     return std::make_pair(gcs_address_, gcs_port_);
   }
@@ -608,6 +628,7 @@ class GcsRpcClient {
   std::shared_ptr<GrpcClient<NodeInfoGcsService>> node_info_grpc_client_;
   std::shared_ptr<GrpcClient<NodeResourceInfoGcsService>> node_resource_info_grpc_client_;
   std::shared_ptr<GrpcClient<WorkerInfoGcsService>> worker_info_grpc_client_;
+  std::shared_ptr<GrpcClient<WorkerLeaseGcsService>> worker_lease_grpc_client_;
   std::shared_ptr<GrpcClient<PlacementGroupInfoGcsService>>
       placement_group_info_grpc_client_;
   std::shared_ptr<GrpcClient<InternalKVGcsService>> internal_kv_grpc_client_;
