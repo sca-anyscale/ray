@@ -1,0 +1,28 @@
+load("//bazel:ray.bzl", "ray_cc_library")
+
+ray_cc_library(
+    name = "gcs_lease_manager",
+    srcs = [
+        "gcs_lease_manager.cc",
+    ],
+    hdrs = [
+        "gcs_lease_manager.h",
+        "lease_info.h",
+    ],
+    deps = [
+        "//src/ray/asio:instrumented_io_context",
+        "//src/ray/common:id",
+        "//src/ray/common:lease",
+        "//src/ray/core_worker_rpc_client:core_worker_client_pool",
+        "//src/ray/gcs:gcs_node_manager",
+        "//src/ray/gcs:gcs_usage_stats_client",
+        "//src/ray/gcs:grpc_service_interfaces",
+        "//src/ray/observability:ray_event_recorder_interface",
+        "//src/ray/protobuf:gcs_service_cc_proto",
+        "//src/ray/pubsub:gcs_publisher",
+        "//src/ray/raylet/scheduling:cluster_lease_manager",
+        "//src/ray/util:clock",
+        "//src/ray/util:counter_map",
+        "//src/ray/util:logging",
+    ],
+)

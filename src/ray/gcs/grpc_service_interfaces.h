@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "ray/common/id.h"
 #include "ray/common/status.h"
 #include "ray/rpc/rpc_callback_types.h"
 #include "src/ray/protobuf/autoscaler.grpc.pb.h"
@@ -266,6 +267,23 @@ class TaskInfoGcsServiceHandler {
   virtual void HandleGetTaskEvents(GetTaskEventsRequest request,
                                    GetTaskEventsReply *reply,
                                    SendReplyCallback send_reply_callback) = 0;
+};
+
+class WorkerLeaseGcsServiceHandler {
+ public:
+  virtual ~WorkerLeaseGcsServiceHandler() = default;
+
+  virtual void HandleGcsRequestWorkerLease(GcsRequestWorkerLeaseRequest request,
+                                           GcsRequestWorkerLeaseReply *reply,
+                                           SendReplyCallback send_reply_callback) = 0;
+
+  virtual void HandleGcsReturnWorkerLease(GcsReturnWorkerLeaseRequest request,
+                                          GcsReturnWorkerLeaseReply *reply,
+                                          SendReplyCallback send_reply_callback) = 0;
+
+  virtual void HandleGcsCancelWorkerLease(GcsCancelWorkerLeaseRequest request,
+                                          GcsCancelWorkerLeaseReply *reply,
+                                          SendReplyCallback send_reply_callback) = 0;
 };
 
 class PlacementGroupInfoGcsServiceHandler {
