@@ -451,6 +451,7 @@ ray_cc_library(
         "//src/ray/gcs/actor:gcs_actor",
         "//src/ray/gcs/actor:gcs_actor_manager",
         "//src/ray/gcs/actor:gcs_actor_scheduler",
+        "//src/ray/gcs/lease:gcs_lease_manager",
         ":gcs_autoscaler_state_manager",
         ":gcs_cluster_resource_storage",
         ":gcs_function_manager",
