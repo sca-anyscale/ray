@@ -350,6 +350,7 @@ void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
       metrics_.placement_group_creation_latency_in_ms_histogram,
       metrics_.placement_group_scheduling_latency_in_ms_histogram,
       metrics_.placement_group_count_gauge);
+  InitGcsLeaseManager();
   InitGcsActorManager(
       gcs_init_data, metrics_.actor_by_state_gauge, metrics_.gcs_actor_by_state_gauge);
   InitGcsWorkerManager(gcs_init_data);
@@ -594,6 +595,38 @@ void GcsServer::RestoreNodeResources(const GcsInitData &gcs_init_data) {
 
 void GcsServer::InitClusterLeaseManager() {
   RAY_CHECK(cluster_resource_scheduler_);
+
+  /// XXX move this to a header file or cluster_lease_manager.cc itself to avoid two?
+  auto announce_infeasible_lease = [](const ray::RayLease &lease) {
+    /// Publish the infeasible lease error to GCS so that drivers can subscribe to it
+    /// and print.
+    bool suppress_warning = false;
+
+    if (!lease.GetLeaseSpecification().PlacementGroupBundleId().first.IsNil()) {
+      // If the lease is part of a placement group, do nothing. If necessary, the
+      // infeasible warning should come from the placement group scheduling, not the
+      // lease scheduling.
+      suppress_warning = true;
+    }
+
+    // Push a warning to the lease's driver that this lease is currently infeasible.
+    if (!suppress_warning) {
+      std::ostringstream error_message;
+      error_message
+          << "The lease with ID " << lease.GetLeaseSpecification().LeaseId()
+          << " cannot be scheduled right now. It requires "
+          << lease.GetLeaseSpecification().GetRequiredPlacementResources().DebugString()
+          << " for placement, however the cluster currently cannot provide the "
+             "requested "
+             "resources. The required resources may be added as autoscaling takes "
+             "place "
+             "or placement groups are scheduled. Otherwise, consider reducing the "
+             "resource requirements of the lease.";
+      std::string error_message_str = error_message.str();
+      RAY_LOG(WARNING) << error_message_str;
+    }
+  };
+
   cluster_lease_manager_ = std::make_unique<ClusterLeaseManager>(
       kGCSNodeID,
       *cluster_resource_scheduler_,
@@ -601,7 +634,7 @@ void GcsServer::InitClusterLeaseManager() {
       [this](const NodeID &node_id) {
         return gcs_node_manager_->GetAliveNodeAddress(node_id);
       },
-      /*announce_infeasible_task=*/nullptr,
+      /*announce_infeasible_lease=*/announce_infeasible_lease,
       /*local_lease_manager=*/local_lease_manager_);
 }
 
@@ -630,6 +663,26 @@ void GcsServer::InitGcsJobManager(
   rpc_server_.RegisterService(std::make_unique<rpc::JobInfoGrpcService>(
       io_context_provider_.GetDefaultIOContext(),
       *gcs_job_manager_,
+      RayConfig::instance().gcs_max_active_rpcs_per_handler()));
+}
+
+void GcsServer::InitGcsLeaseManager() {
+  RAY_CHECK(gcs_publisher_ && observability_publisher_ && cluster_lease_manager_);
+
+  gcs_lease_manager_ =
+      std::make_unique<GcsLeaseManager>(*cluster_lease_manager_,
+                                        *gcs_node_manager_,
+                                        io_context_provider_.GetDefaultIOContext(),
+                                        raylet_client_pool_,
+                                        worker_client_pool_,
+                                        *ray_event_recorder_,
+                                        config_.session_name,
+                                        observability_publisher_.get(),
+                                        clock_);
+
+  rpc_server_.RegisterService(std::make_unique<rpc::WorkerLeaseGrpcService>(
+      io_context_provider_.GetDefaultIOContext(),
+      *gcs_lease_manager_,
       RayConfig::instance().gcs_max_active_rpcs_per_handler()));
 }
 
