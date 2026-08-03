@@ -33,6 +33,7 @@
 #include "ray/gcs/gcs_server_io_context_policy.h"
 #include "ray/gcs/gcs_table_storage.h"
 #include "ray/gcs/gcs_task_manager.h"
+#include "ray/gcs/lease/gcs_lease_manager.h"
 #include "ray/gcs/metrics.h"
 #include "ray/gcs/postable/postable.h"
 #include "ray/gcs/pubsub_handler.h"
@@ -213,6 +214,9 @@ class GcsServer {
                           ray::observability::MetricInterface &task_events_dropped_gauge,
                           ray::observability::MetricInterface &task_events_stored_gauge);
 
+  /// Initialize gcs lease manager.
+  void InitGcsLeaseManager();
+
   /// Initialize gcs autoscaling manager.
   void InitGcsAutoscalerStateManager(const GcsInitData &gcs_init_data);
 
@@ -280,6 +284,8 @@ class GcsServer {
   /// The cluster lease manager.
   std::unique_ptr<ClusterLeaseManager> cluster_lease_manager_;
   NoopLocalLeaseManager local_lease_manager_;
+  /// GCS's lease manager
+  std::unique_ptr<GcsLeaseManager> gcs_lease_manager_;
   std::unique_ptr<gcs::GcsTableStorage> gcs_table_storage_;
   /// gcs_resource_manager_ depends on cluster_lease_manager_.
   std::unique_ptr<GcsResourceManager> gcs_resource_manager_;
