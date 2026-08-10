@@ -69,6 +69,20 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
                                   rpc::GcsCancelWorkerLeaseReply *reply,
                                   rpc::SendReplyCallback send_reply_callback) override;
 
+  /// Handle a node death. This will remove the lease information for that node.
+  ///
+  /// \param node_id The specified node id.
+  void OnNodeDead(const NodeID &node_id);
+
+  /// Handle a worker failure. This will remove the lease information for that worker.
+  ///
+  /// \param node_id ID of the node where the dead worker was located.
+  /// \param worker_id ID of the dead worker.
+  /// \param exit_type exit reason of the dead worker.
+  /// \param creation_task_exception if this arg is set, this worker is died because of an
+  /// exception thrown in actor's creation task.
+  void OnWorkerDead(const WorkerID &worker_id);
+
  private:
   ClusterLeaseManager &cluster_lease_manager_;
   GcsNodeManager &gcs_node_manager_;
@@ -90,8 +104,7 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
     REQUEST_WORKER_LEASE_REQUEST = 0,
     RETURN_WORKER_LEASE_REQUEST = 1,
     CANCEL_WORKER_LEASE_REQUEST = 2,
-    GET_WORKER_FAILURE_CAUSE_REQUEST = 3,
-    CountType_MAX = 4,
+    CountType_MAX = 3,
   };
   uint64_t counts_[CountType::CountType_MAX] = {0};
 };
