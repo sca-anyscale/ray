@@ -205,5 +205,17 @@ void GcsLeaseManager::HandleGcsCancelWorkerLease(
   GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
 }
 
+void GcsLeaseManager::OnNodeDead(const NodeID &node_id) {
+  absl::erase_if(known_leases_, [&](const auto &kv) {
+    return NodeID::FromBinary(kv.second->Address().node_id()) == node_id;
+  });
+}
+
+void GcsLeaseManager::OnWorkerDead(const WorkerID &worker_id) {
+  absl::erase_if(known_leases_, [&](const auto &kv) {
+    return WorkerID::FromBinary(kv.second->Address().worker_id()) == worker_id;
+  });
+}
+
 }  // namespace gcs
 }  // namespace ray
