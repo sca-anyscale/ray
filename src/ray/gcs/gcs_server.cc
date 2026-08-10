@@ -331,7 +331,7 @@ void GcsServer::GetOrGenerateClusterId(
 void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
   InitClusterResourceScheduler();
   InitGcsNodeManager(gcs_init_data);
-  RestoreNodeResources(gcs_init_data);
+  // RestoreNodeResources(gcs_init_data);
   InitClusterLeaseManager();
   InitGcsResourceManager(gcs_init_data);
   InitGcsHealthCheckManager(gcs_init_data);
@@ -1120,6 +1120,7 @@ void GcsServer::InstallEventListeners() {
         gcs_placement_group_manager_->OnNodeDead(node_id);
         gcs_actor_manager_->OnNodeDead(node, node_ip_address);
         gcs_job_manager_->OnNodeDead(node_id);
+        gcs_lease_manager_->OnNodeDead(node_id);
         raylet_client_pool_.Disconnect(node_id);
         worker_client_pool_.Disconnect(node_id);
         gcs_healthcheck_manager_->RemoveNode(node_id);
@@ -1152,6 +1153,7 @@ void GcsServer::InstallEventListeners() {
                                          worker_failure_data->exit_type(),
                                          worker_failure_data->exit_detail(),
                                          creation_task_exception);
+        gcs_lease_manager_->OnWorkerDead(worker_id);
         pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         observability_pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         gcs_task_manager_->OnWorkerDead(worker_id, worker_failure_data);
