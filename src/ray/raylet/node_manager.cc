@@ -246,6 +246,7 @@ NodeManager::NodeManager(
       mutable_object_provider_(std::move(mutable_object_provider)),
       periodical_runner_(periodical_runner),
       report_resources_period_ms_(config.report_resources_period_ms),
+      report_leases_period_ms_(config.report_leases_period_ms),
       initial_config_(config),
       lease_dependency_manager_(lease_dependency_manager),
       wait_manager_(/*is_object_local*/
@@ -394,6 +395,15 @@ void NodeManager::RegisterGcs() {
         /* receiver */ this,
         /* pull_from_reporter_interval_ms */
         report_resources_period_ms_);
+
+    if (RayConfig::instance().centralized_actor_scheduling()) {
+      ray_syncer_.Register(
+          /* message_type */ syncer::MessageType::LEASE_VIEW,
+          /* reporter */ this,
+          /* receiver */ this,
+          /* pull_from_reporter_interval_ms */
+          report_leases_period_ms_);
+    }
 
     // COMMANDS is used only to broadcast a global request to call the Python garbage
     // collector on all Raylets when the cluster is under memory pressure.
@@ -3100,14 +3110,31 @@ void NodeManager::ConsumeSyncMessage(
     if (commands_sync_message.should_global_gc()) {
       local_gc_triggered_by_global_gc_ = true;
     }
+  } else if (message->message_type() == syncer::MessageType::LEASE_VIEW) {
+    NodeID node_id = NodeID::FromBinary(message->node_id());
+    if (node_id != self_node_id_) {
+      return;
+    }
+
+    int64_t version = message->version();
+    absl::MutexLock lock(&removed_workers_lock_);
+    RAY_LOG(DEBUG) << "OLD SIZE " << version << " " << removed_workers_.size();
+    absl::erase_if(removed_workers_,
+                   [version](const auto &entry) { return entry.first <= version; });
+    RAY_LOG(DEBUG) << "NEW SIZE " << version << " " << removed_workers_.size();
   }
 }
 
 std::optional<syncer::RaySyncMessage> NodeManager::CreateSyncMessage(
     int64_t after_version, syncer::MessageType message_type) const {
-  // This method is only called for the COMMANDS channel, as the RESOURCE_VIEW
-  // channel goes through the LocalResourceManager.
-  RAY_CHECK_EQ(message_type, syncer::MessageType::COMMANDS);
+  // This method is only called for the COMMANDS and LEASE_VIEW channels.
+  // The RESOURCE_VIEW channel goes through the LocalResourceManager.
+  RAY_CHECK(message_type == syncer::MessageType::COMMANDS ||
+            message_type == syncer::MessageType::LEASE_VIEW);
+
+  if (message_type == syncer::MessageType::LEASE_VIEW) {
+    return CreateLeaseMessage(after_version, message_type);
+  }
 
   // Serialize the COMMANDS message to a byte string to be nested inside the sync message.
   std::string serialized_commands_sync_msg;
@@ -3122,6 +3149,40 @@ std::optional<syncer::RaySyncMessage> NodeManager::CreateSyncMessage(
   msg.set_message_type(syncer::MessageType::COMMANDS);
   msg.set_sync_message(std::move(serialized_commands_sync_msg));
 
+  return std::make_optional(std::move(msg));
+}
+
+std::optional<syncer::RaySyncMessage> NodeManager::CreateLeaseMessage(
+    int64_t after_version, syncer::MessageType message_type) const {
+  absl::MutexLock lock(&removed_workers_lock_);
+  if (removed_workers_.empty() || version_ <= after_version) {
+    RAY_LOG(DEBUG) << "EMPTY " << version_ << " " << after_version;
+    return std::nullopt;
+  }
+
+  syncer::RaySyncMessage msg;
+  msg.set_version(version_);
+  msg.set_node_id(self_node_id_.Binary());
+  msg.set_message_type(syncer::MessageType::LEASE_VIEW);
+
+  rpc::syncer::LeaseView lease_view_message;
+  lease_view_message.set_lease_status(rpc::syncer::LeaseStatus::REMOVED);
+
+  for (const auto &[_, worker] : removed_workers_) {
+    rpc::syncer::LeaseAndWorker worker_msg;
+    worker_msg.mutable_address()->CopyFrom(worker->GetOwnerAddress());
+    worker_msg.set_pid(worker->GetProcess().GetId());
+    worker_msg.mutable_lease()->CopyFrom(
+        worker->GetGrantedLease().GetLeaseSpecification().GetMessage());
+    lease_view_message.add_leases()->CopyFrom(worker_msg);
+  }
+
+  RAY_LOG(DEBUG) << "LEASES " << lease_view_message.DebugString();
+
+  std::string serialized_msg;
+  RAY_CHECK(lease_view_message.SerializeToString(&serialized_msg));
+
+  msg.set_sync_message(std::move(serialized_msg));
   return std::make_optional(std::move(msg));
 }
 
