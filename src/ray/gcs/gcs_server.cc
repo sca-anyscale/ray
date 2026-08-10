@@ -673,12 +673,7 @@ void GcsServer::InitGcsLeaseManager() {
       std::make_unique<GcsLeaseManager>(*cluster_lease_manager_,
                                         *gcs_node_manager_,
                                         io_context_provider_.GetDefaultIOContext(),
-                                        raylet_client_pool_,
-                                        worker_client_pool_,
-                                        *ray_event_recorder_,
-                                        config_.session_name,
-                                        observability_publisher_.get(),
-                                        clock_);
+                                        raylet_client_pool_);
 
   rpc_server_.RegisterService(std::make_unique<rpc::WorkerLeaseGrpcService>(
       io_context_provider_.GetDefaultIOContext(),
@@ -1191,7 +1186,8 @@ void GcsServer::PrintDebugState() const {
                 << observability_publisher_->DebugString() << "\n\n"
                 << runtime_env_manager_->DebugString() << "\n\n"
                 << gcs_task_manager_->DebugString() << "\n\n"
-                << gcs_autoscaler_state_manager_->DebugString() << "\n\n";
+                << gcs_autoscaler_state_manager_->DebugString() << "\n\n"
+                << gcs_lease_manager_->DebugString() << "\n\n";
 
   /// If periodic asio stats print is enabled, it will print it.
   const auto event_stats_print_interval_ms =

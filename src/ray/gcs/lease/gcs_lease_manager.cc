@@ -17,27 +17,14 @@
 namespace ray {
 namespace gcs {
 
-GcsLeaseManager::GcsLeaseManager(
-    ClusterLeaseManager &cluster_lease_manager,
-    GcsNodeManager &gcs_node_manager,
-    instrumented_io_context &io_context,
-    rpc::RayletClientPool &raylet_client_pool,
-    rpc::CoreWorkerClientPool &worker_client_pool,
-    observability::RayEventRecorderInterface &ray_event_recorder,
-    const std::string &session_name,
-    // ray::observability::MetricInterface &actor_by_state_gauge,
-    // ray::observability::MetricInterface &gcs_actor_by_state_gauge,
-    pubsub::ObservabilityPublisher *observability_publisher,
-    ClockInterface &clock)
+GcsLeaseManager::GcsLeaseManager(ClusterLeaseManager &cluster_lease_manager,
+                                 GcsNodeManager &gcs_node_manager,
+                                 instrumented_io_context &io_context,
+                                 rpc::RayletClientPool &raylet_client_pool)
     : cluster_lease_manager_(cluster_lease_manager),
       gcs_node_manager_(gcs_node_manager),
       io_context_(io_context),
-      raylet_client_pool_(raylet_client_pool),
-      worker_client_pool_(worker_client_pool),
-      ray_event_recorder_(ray_event_recorder),
-      session_name_(session_name),
-      observability_publisher_(observability_publisher),
-      clock_(clock) {}
+      raylet_client_pool_(raylet_client_pool) {}
 
 void GcsLeaseManager::HandleGcsRequestWorkerLease(
     rpc::GcsRequestWorkerLeaseRequest request,
@@ -62,6 +49,7 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
     resp->mutable_worker_address()->set_worker_id(worker_address.worker_id());
     resp->mutable_worker_address()->set_node_id(worker_address.node_id());
     GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+    ++counts_[CountType::RETRIED_REQUEST_WORKER_LEASE_REQUEST];
     return;
   }
 
@@ -91,7 +79,7 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
         rreq->set_grant_or_reject(true);
         raylet_client->RequestWorkerLease(
             std::move(*rreq),
-            [this, lease, lease_id, rreq, reply, send_reply_callback](
+            [this, lease, lease_id, reply, send_reply_callback](
                 const Status &lease_status,
                 const rpc::RequestWorkerLeaseReply &raylet_resp) {
               RAY_LOG(DEBUG) << "LSTATUS " << lease_status;
@@ -112,6 +100,7 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
               }
 
               GCS_RPC_SEND_REPLY(send_reply_callback, reply, lease_status);
+              ++counts_[CountType::REQUEST_WORKER_LEASE_REQUEST];
             });
       };
 
@@ -144,6 +133,7 @@ void GcsLeaseManager::HandleGcsReturnWorkerLease(
 
   // Check if this message is a retry
   if (!known_leases_.contains(lease_id)) {
+    ++counts_[CountType::RETURN_WORKER_LEASE_REQUEST];
     GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
     return;
   }
@@ -169,6 +159,7 @@ void GcsLeaseManager::HandleGcsReturnWorkerLease(
 
   ReleaseLease(node_id, lease_id, lease_info->Lease());
   GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+  ++counts_[CountType::RETURN_WORKER_LEASE_REQUEST];
 }
 
 void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
@@ -176,6 +167,7 @@ void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
                                    const RayLease &lease) {
   if (!known_leases_.contains(lease_id)) {
     RAY_LOG(DEBUG).WithField(node_id).WithField(lease_id) << "UNKNOWN LEASE";
+    ++counts_[CountType::UNKNOWN_LEASE_RELEASE];
     return;
   }
 
@@ -213,6 +205,7 @@ void GcsLeaseManager::HandleGcsCancelWorkerLease(
   // the client that requested the lease.
   resp->set_success(canceled);
   GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+  ++counts_[CountType::CANCEL_WORKER_LEASE_REQUEST];
 }
 
 void GcsLeaseManager::OnNodeDead(const NodeID &node_id) {
@@ -254,6 +247,7 @@ void GcsLeaseManager::ReleaseLeases(const NodeID &node_id,
   for (const auto &lease : message.leases()) {
     RayLease ray_lease(lease.lease());
     ReleaseLease(node_id, ray_lease.GetLeaseSpecification().LeaseId(), ray_lease);
+    ++counts_[CountType::LEASES_RELEASED_BY_RAYLET];
   }
 }
 
@@ -262,5 +256,23 @@ std::optional<syncer::RaySyncMessage> GcsLeaseManager::CreateSyncMessage(
   return std::nullopt;
 }
 
+std::string GcsLeaseManager::DebugString() const {
+  std::ostringstream stream;
+  stream << "GcsLeaseManager: "
+         << "\n- RequestWorkerLease request count: "
+         << counts_[CountType::REQUEST_WORKER_LEASE_REQUEST]
+         << "\n- Retried RequestWorkerLease request count: "
+         << counts_[CountType::RETRIED_REQUEST_WORKER_LEASE_REQUEST]
+         << "\n- ReturnWorkerLease request count: "
+         << counts_[CountType::RETURN_WORKER_LEASE_REQUEST]
+         << "\n- CancelWorkerLease request count: "
+         << counts_[CountType::CANCEL_WORKER_LEASE_REQUEST]
+         << "\n- Unknown lease release count: "
+         << counts_[CountType::UNKNOWN_LEASE_RELEASE]
+         << "\n- Leases released by raylet count: "
+         << counts_[CountType::LEASES_RELEASED_BY_RAYLET]
+         << "\n- Known leases: " << known_leases_.size();
+  return stream.str();
+}
 }  // namespace gcs
 }  // namespace ray

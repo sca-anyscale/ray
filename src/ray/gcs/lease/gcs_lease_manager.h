@@ -22,16 +22,11 @@
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
-#include "absl/container/flat_hash_set.h"
 #include "ray/asio/instrumented_io_context.h"
 #include "ray/common/id.h"
-#include "ray/core_worker_rpc_client/core_worker_client_pool.h"
 #include "ray/gcs/gcs_node_manager.h"
 #include "ray/gcs/grpc_service_interfaces.h"
 #include "ray/gcs/lease/lease_info.h"
-#include "ray/gcs/usage_stats_client.h"
-#include "ray/observability/ray_event_recorder_interface.h"
-#include "ray/pubsub/gcs_publisher.h"
 #include "ray/ray_syncer/ray_syncer.h"
 #include "ray/raylet/scheduling/cluster_lease_manager.h"
 #include "ray/util/clock.h"
@@ -53,12 +48,7 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   GcsLeaseManager(ClusterLeaseManager &cluster_lease_manager,
                   GcsNodeManager &gcs_node_manager,
                   instrumented_io_context &io_context,
-                  rpc::RayletClientPool &raylet_client_pool,
-                  rpc::CoreWorkerClientPool &worker_client_pool,
-                  observability::RayEventRecorderInterface &ray_event_recorder,
-                  const std::string &session_name,
-                  pubsub::ObservabilityPublisher *observability_publisher,
-                  ClockInterface &clock);
+                  rpc::RayletClientPool &raylet_client_pool);
 
   void HandleGcsRequestWorkerLease(rpc::GcsRequestWorkerLeaseRequest request,
                                    rpc::GcsRequestWorkerLeaseReply *reply,
@@ -90,6 +80,8 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   std::optional<syncer::RaySyncMessage> CreateSyncMessage(
       int64_t after_version, syncer::MessageType message_type) const override;
 
+  std::string DebugString() const;
+
  private:
   void ReleaseLeases(const NodeID &node_id, rpc::syncer::LeaseView message);
   void ReleaseLease(const NodeID &node_id,
@@ -101,12 +93,6 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   instrumented_io_context &io_context_;
   /// The cached raylet clients used to communicate with raylet.
   rpc::RayletClientPool &raylet_client_pool_;
-  /// Core worker client pool shared by the GCS.
-  rpc::CoreWorkerClientPool &worker_client_pool_;
-  observability::RayEventRecorderInterface &ray_event_recorder_;
-  std::string session_name_;
-  pubsub::ObservabilityPublisher *observability_publisher_;
-  ClockInterface &clock_;
 
   /// Map of leased workers to their worker address and lease specification.
   absl::flat_hash_map<LeaseID, std::shared_ptr<LeaseInfo>> known_leases_;
@@ -114,9 +100,12 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   // Debug info.
   enum CountType {
     REQUEST_WORKER_LEASE_REQUEST = 0,
-    RETURN_WORKER_LEASE_REQUEST = 1,
-    CANCEL_WORKER_LEASE_REQUEST = 2,
-    CountType_MAX = 3,
+    RETRIED_REQUEST_WORKER_LEASE_REQUEST = 1,
+    RETURN_WORKER_LEASE_REQUEST = 2,
+    CANCEL_WORKER_LEASE_REQUEST = 3,
+    UNKNOWN_LEASE_RELEASE = 4,
+    LEASES_RELEASED_BY_RAYLET = 5,
+    CountType_MAX = 6,
   };
   uint64_t counts_[CountType::CountType_MAX] = {0};
 };
