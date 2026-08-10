@@ -167,6 +167,18 @@ void GcsLeaseManager::HandleGcsReturnWorkerLease(
                                    rreq.disconnect_worker_error_detail(),
                                    rreq.worker_exiting());
 
+  ReleaseLease(node_id, lease_id, lease_info->Lease());
+  GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+}
+
+void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
+                                   const LeaseID &lease_id,
+                                   const RayLease &lease) {
+  if (!known_leases_.contains(lease_id)) {
+    RAY_LOG(DEBUG).WithField(node_id).WithField(lease_id) << "UNKNOWN LEASE";
+    return;
+  }
+
   // remove lease from known_leases_
   known_leases_.erase(lease_id);
 
@@ -175,15 +187,13 @@ void GcsLeaseManager::HandleGcsReturnWorkerLease(
       cluster_lease_manager_.GetClusterResourceScheduler().GetClusterResourceManager();
 
   // XXX do we get placement resources for non-actors?
-  RAY_LOG(DEBUG) << "LLINFO " << lease_info->DebugString();
+  RAY_LOG(DEBUG) << "LLINFO " << lease.DebugString();
   cluster_resource_manager.AddNodeAvailableResources(
       scheduling::NodeID(node_id.Binary()),
-      lease_info->Lease().GetLeaseSpecification().GetRequiredPlacementResources());
+      lease.GetLeaseSpecification().GetRequiredPlacementResources());
   cluster_resource_manager.AddNodeAvailableResources(
       scheduling::NodeID(node_id.Binary()),
-      lease_info->Lease().GetLeaseSpecification().GetRequiredResources());
-
-  GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+      lease.GetLeaseSpecification().GetRequiredResources());
 }
 
 void GcsLeaseManager::HandleGcsCancelWorkerLease(
@@ -215,6 +225,41 @@ void GcsLeaseManager::OnWorkerDead(const WorkerID &worker_id) {
   absl::erase_if(known_leases_, [&](const auto &kv) {
     return WorkerID::FromBinary(kv.second->Address().worker_id()) == worker_id;
   });
+}
+
+void GcsLeaseManager::ConsumeSyncMessage(
+    std::shared_ptr<const syncer::RaySyncMessage> message) {
+  RAY_LOG(DEBUG) << "LEASEVIEW " << message->DebugString();
+
+  io_context_.dispatch(
+      [this, message]() {
+        if (message->message_type() == rpc::syncer::MessageType::COMMANDS) {
+          // COMMANDS channel is currently unused.
+        } else if (message->message_type() == rpc::syncer::MessageType::LEASE_VIEW) {
+          rpc::syncer::LeaseView lease_view_sync_message;
+          lease_view_sync_message.ParseFromString(message->sync_message());
+          ReleaseLeases(NodeID::FromBinary(message->node_id()), lease_view_sync_message);
+        } else {
+          RAY_LOG(FATAL) << "Unsupported message type: " << message->message_type();
+        }
+      },
+      "GcsLeaseManager::Update");
+}
+
+void GcsLeaseManager::ReleaseLeases(const NodeID &node_id,
+                                    rpc::syncer::LeaseView message) {
+  if (message.lease_status() != rpc::syncer::LeaseStatus::REMOVED) {
+    return;
+  }
+  for (const auto &lease : message.leases()) {
+    RayLease ray_lease(lease.lease());
+    ReleaseLease(node_id, ray_lease.GetLeaseSpecification().LeaseId(), ray_lease);
+  }
+}
+
+std::optional<syncer::RaySyncMessage> GcsLeaseManager::CreateSyncMessage(
+    int64_t after_version, syncer::MessageType message_type) const {
+  return std::nullopt;
 }
 
 }  // namespace gcs

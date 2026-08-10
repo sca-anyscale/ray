@@ -20,6 +20,7 @@ ray_cc_library(
         "//src/ray/observability:ray_event_recorder_interface",
         "//src/ray/protobuf:gcs_service_cc_proto",
         "//src/ray/pubsub:gcs_publisher",
+        "//src/ray/ray_syncer",
         "//src/ray/raylet/scheduling:cluster_lease_manager",
         "//src/ray/util:clock",
         "//src/ray/util:counter_map",
