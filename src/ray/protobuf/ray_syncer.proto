@@ -15,11 +15,20 @@
 syntax = "proto3";
 package ray.rpc.syncer;
 
+import "src/ray/protobuf/common.proto";
+
 enum MessageType {
   RESOURCE_VIEW = 0;
   COMMANDS = 1;
+  LEASE_VIEW = 2;
+  LEASE_ACK = 3;
 }
 
+enum LeaseStatus {
+  UNUSED = 0;
+  REMOVED = 1;
+  ACTIVE = 2;
+}
 message CommandsSyncMessage {
   // Whether this node manager is requesting global GC.
   bool should_global_gc = 1;
@@ -61,6 +70,25 @@ message RaySyncMessage {
 message RaySyncMessageBatch {
   // Batch of RaySyncMessages.
   repeated RaySyncMessage messages = 1;
+}
+
+message LeaseAndWorker {
+  LeaseSpec lease = 1;
+  Address address = 2;
+  int32 pid = 3;
+}
+
+message LeaseView {
+  // the status of the leases in this message:
+  // - active leases are sent on GCS restart
+  // - removed leases are sent as needed
+  LeaseStatus lease_status = 1;
+  // the list of leases
+  repeated LeaseAndWorker leases = 3;
+}
+
+message LeaseAck {
+  map<string, int64> node_versions = 1;
 }
 
 service RaySyncer {
