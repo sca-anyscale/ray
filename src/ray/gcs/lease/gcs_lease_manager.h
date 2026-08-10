@@ -32,6 +32,7 @@
 #include "ray/gcs/usage_stats_client.h"
 #include "ray/observability/ray_event_recorder_interface.h"
 #include "ray/pubsub/gcs_publisher.h"
+#include "ray/ray_syncer/ray_syncer.h"
 #include "ray/raylet/scheduling/cluster_lease_manager.h"
 #include "ray/util/clock.h"
 #include "ray/util/counter_map.h"
@@ -42,7 +43,9 @@ using raylet::ClusterLeaseManager;
 namespace gcs {
 
 class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
-                        public std::enable_shared_from_this<GcsLeaseManager> {
+                        public std::enable_shared_from_this<GcsLeaseManager>,
+                        public syncer::ReporterInterface,
+                        public syncer::ReceiverInterface {
  public:
   /// Create a GcsLeaseManager
   ///
@@ -83,7 +86,16 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   /// exception thrown in actor's creation task.
   void OnWorkerDead(const WorkerID &worker_id);
 
+  void ConsumeSyncMessage(std::shared_ptr<const syncer::RaySyncMessage> message) override;
+  std::optional<syncer::RaySyncMessage> CreateSyncMessage(
+      int64_t after_version, syncer::MessageType message_type) const override;
+
  private:
+  void ReleaseLeases(const NodeID &node_id, rpc::syncer::LeaseView message);
+  void ReleaseLease(const NodeID &node_id,
+                    const LeaseID &lease_id,
+                    const RayLease &lease);
+
   ClusterLeaseManager &cluster_lease_manager_;
   GcsNodeManager &gcs_node_manager_;
   instrumented_io_context &io_context_;
