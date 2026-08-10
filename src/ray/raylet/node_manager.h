@@ -115,6 +115,8 @@ struct NodeManagerConfig {
   std::string runtime_env_agent_command;
   /// The time between reports resources in milliseconds.
   uint64_t report_resources_period_ms;
+  /// The time between reports resources in milliseconds.
+  uint64_t report_leases_period_ms;
   /// The store socket name.
   std::string store_socket_name;
   /// The path of this ray log dir.
@@ -247,6 +249,12 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
   std::optional<syncer::RaySyncMessage> CreateSyncMessage(
       int64_t after_version, syncer::MessageType message_type) const override;
 
+  // Generate a RaySyncer sync message to be sent to GCS.
+  //
+  // This generates a lease report for GCS.
+  std::optional<syncer::RaySyncMessage> CreateLeaseMessage(
+      int64_t after_version, syncer::MessageType message_type) const;
+
   /// Setup global GC to be triggered at the next gc check, so that references to actors
   /// or object ids can be freed up across the cluster.
   void SetShouldGlobalGC();
@@ -374,6 +382,10 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
   // resources well.
   void ReleaseWorker(const LeaseID &lease_id) {
     RAY_CHECK(leased_workers_.contains(lease_id));
+    auto it = leased_workers_.find(lease_id);  // expected to be found due to above check
+    absl::MutexLock lock(&removed_workers_lock_);
+    version_++;
+    removed_workers_.emplace(version_, std::move(it->second));
     leased_workers_.erase(lease_id);
     SetIdleIfLeaseEmpty();
   }
@@ -898,6 +910,8 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
   std::shared_ptr<PeriodicalRunnerInterface> periodical_runner_;
   /// The period used for the resources report timer.
   uint64_t report_resources_period_ms_;
+  /// The period used for the leases report timer.
+  uint64_t report_leases_period_ms_;
   /// Incremented each time we encounter a potential resource deadlock condition.
   /// This is reset to zero when the condition is cleared.
   int resource_deadlock_warned_ = 0;
@@ -939,6 +953,12 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
 
   /// Map of leased workers to their lease ids.
   absl::flat_hash_map<LeaseID, std::shared_ptr<WorkerInterface>> &leased_workers_;
+
+  mutable absl::Mutex removed_workers_lock_;
+  absl::flat_hash_map<int64_t, std::shared_ptr<WorkerInterface>> removed_workers_
+      ABSL_GUARDED_BY(removed_workers_lock_);
+  // Version of this resource. It will incr by one whenever the state changed.
+  int64_t version_ = 0;
 
   /// Optional extra information about why the worker failed.
   absl::flat_hash_map<LeaseID, ray::TaskFailureEntry> worker_failure_reasons_;
