@@ -335,6 +335,7 @@ void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
   InitClusterLeaseManager();
   InitGcsResourceManager(gcs_init_data);
   InitGcsHealthCheckManager(gcs_init_data);
+  InitGcsLeaseManager();
   InitRaySyncer(gcs_init_data);
   InitKVService();
   InitFunctionManager();
@@ -350,7 +351,6 @@ void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
       metrics_.placement_group_creation_latency_in_ms_histogram,
       metrics_.placement_group_scheduling_latency_in_ms_histogram,
       metrics_.placement_group_count_gauge);
-  InitGcsLeaseManager();
   InitGcsActorManager(
       gcs_init_data, metrics_.actor_by_state_gauge, metrics_.gcs_actor_by_state_gauge);
   InitGcsWorkerManager(gcs_init_data);
@@ -837,6 +837,13 @@ void GcsServer::InitRaySyncer(const GcsInitData &gcs_init_data) {
       syncer::MessageType::RESOURCE_VIEW, nullptr, gcs_resource_manager_.get());
   ray_syncer_->Register(
       syncer::MessageType::COMMANDS, nullptr, gcs_resource_manager_.get());
+
+  if (RayConfig::instance().centralized_actor_scheduling()) {
+    ray_syncer_->Register(syncer::MessageType::LEASE_VIEW,
+                          gcs_lease_manager_.get(),
+                          gcs_lease_manager_.get());
+  }
+
   rpc_server_.RegisterService(std::make_unique<syncer::RaySyncerService>(
       *ray_syncer_, ray::rpc::AuthenticationTokenLoader::instance().GetToken()));
 }
