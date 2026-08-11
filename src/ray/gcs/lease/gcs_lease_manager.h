@@ -83,7 +83,10 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   std::string DebugString() const;
 
  private:
-  void ReleaseLeases(const NodeID &node_id, rpc::syncer::LeaseView message);
+  void ReserveLeases(const NodeID &node_id, rpc::syncer::LeaseView &message);
+  void ReserveLease(const NodeID &node_id,
+                    const rpc::syncer::LeaseAndWorker &lease_message);
+  void ReleaseLeases(const NodeID &node_id, rpc::syncer::LeaseView &message);
   void ReleaseLease(const NodeID &node_id,
                     const LeaseID &lease_id,
                     const RayLease &lease);
@@ -105,7 +108,9 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
     CANCEL_WORKER_LEASE_REQUEST = 3,
     UNKNOWN_LEASE_RELEASE = 4,
     LEASES_RELEASED_BY_RAYLET = 5,
-    CountType_MAX = 6,
+    DUP_LEASE_RESERVE = 6,
+    LEASES_RESERVED_BY_RAYLET = 7,
+    CountType_MAX = 8,
   };
   uint64_t counts_[CountType::CountType_MAX] = {0};
 };
