@@ -222,8 +222,6 @@ void GcsLeaseManager::OnWorkerDead(const WorkerID &worker_id) {
 
 void GcsLeaseManager::ConsumeSyncMessage(
     std::shared_ptr<const syncer::RaySyncMessage> message) {
-  RAY_LOG(DEBUG) << "LEASEVIEW " << message->DebugString();
-
   io_context_.dispatch(
       [this, message]() {
         if (message->message_type() == rpc::syncer::MessageType::COMMANDS) {
@@ -231,7 +229,20 @@ void GcsLeaseManager::ConsumeSyncMessage(
         } else if (message->message_type() == rpc::syncer::MessageType::LEASE_VIEW) {
           rpc::syncer::LeaseView lease_view_sync_message;
           lease_view_sync_message.ParseFromString(message->sync_message());
-          ReleaseLeases(NodeID::FromBinary(message->node_id()), lease_view_sync_message);
+
+          RAY_CHECK(lease_view_sync_message.lease_status() ==
+                        rpc::syncer::LeaseStatus::REMOVED ||
+                    lease_view_sync_message.lease_status() ==
+                        rpc::syncer::LeaseStatus::ACTIVE);
+
+          if (lease_view_sync_message.lease_status() ==
+              rpc::syncer::LeaseStatus::REMOVED) {
+            ReleaseLeases(NodeID::FromBinary(message->node_id()),
+                          lease_view_sync_message);
+          } else {
+            ReserveLeases(NodeID::FromBinary(message->node_id()),
+                          lease_view_sync_message);
+          }
         } else {
           RAY_LOG(FATAL) << "Unsupported message type: " << message->message_type();
         }
@@ -240,15 +251,53 @@ void GcsLeaseManager::ConsumeSyncMessage(
 }
 
 void GcsLeaseManager::ReleaseLeases(const NodeID &node_id,
-                                    rpc::syncer::LeaseView message) {
-  if (message.lease_status() != rpc::syncer::LeaseStatus::REMOVED) {
-    return;
-  }
+                                    rpc::syncer::LeaseView &message) {
   for (const auto &lease : message.leases()) {
     RayLease ray_lease(lease.lease());
     ReleaseLease(node_id, ray_lease.GetLeaseSpecification().LeaseId(), ray_lease);
     ++counts_[CountType::LEASES_RELEASED_BY_RAYLET];
   }
+}
+
+void GcsLeaseManager::ReserveLeases(const NodeID &node_id,
+                                    rpc::syncer::LeaseView &message) {
+  for (const auto &lease : message.leases()) {
+    RayLease ray_lease(lease.lease());
+    ReserveLease(node_id, lease);
+  }
+}
+
+void GcsLeaseManager::ReserveLease(const NodeID &node_id,
+                                   const rpc::syncer::LeaseAndWorker &lease_message) {
+  RayLease ray_lease(lease_message.lease());
+  auto lease_id = ray_lease.GetLeaseSpecification().LeaseId();
+
+  if (known_leases_.contains(lease_id)) {
+    RAY_LOG(DEBUG).WithField(node_id).WithField(lease_id) << "DUP LEASE";
+    ++counts_[CountType::DUP_LEASE_RESERVE];
+    return;
+  }
+
+  auto lease_info = std::make_shared<LeaseInfo>(
+      ray_lease, lease_message.address(), lease_message.pid());
+  known_leases_.emplace(lease_id, lease_info);
+
+  // acquire the resources for the lease
+  auto &cluster_resource_manager =
+      cluster_lease_manager_.GetClusterResourceScheduler().GetClusterResourceManager();
+
+  auto resources = ResourceMapToResourceRequest(
+      ray_lease.GetLeaseSpecification().GetRequiredPlacementResources().GetResourceMap(),
+      true);
+  cluster_resource_manager.SubtractNodeAvailableResources(
+      scheduling::NodeID(node_id.Binary()), resources);
+
+  resources = ResourceMapToResourceRequest(
+      ray_lease.GetLeaseSpecification().GetRequiredResources().GetResourceMap(), true);
+  cluster_resource_manager.SubtractNodeAvailableResources(
+      scheduling::NodeID(node_id.Binary()), resources);
+
+  ++counts_[CountType::LEASES_RESERVED_BY_RAYLET];
 }
 
 std::optional<syncer::RaySyncMessage> GcsLeaseManager::CreateSyncMessage(
@@ -271,6 +320,10 @@ std::string GcsLeaseManager::DebugString() const {
          << counts_[CountType::UNKNOWN_LEASE_RELEASE]
          << "\n- Leases released by raylet count: "
          << counts_[CountType::LEASES_RELEASED_BY_RAYLET]
+         << "\n- Duplicate leases reserved by raylet count: "
+         << counts_[CountType::UNKNOWN_LEASE_RELEASE]
+         << "\n- Leases reserved by raylet count: "
+         << counts_[CountType::LEASES_RESERVED_BY_RAYLET]
          << "\n- Known leases: " << known_leases_.size();
   return stream.str();
 }
