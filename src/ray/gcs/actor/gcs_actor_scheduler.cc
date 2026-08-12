@@ -729,5 +729,18 @@ void GcsActorScheduler::ReturnActorAcquiredResources(std::shared_ptr<GcsActor> a
   actor->SetAcquiredResources(ResourceRequest());
 }
 
+void GcsActorScheduler::ReallocateResources(std::shared_ptr<GcsActor> actor,
+                                            const ResourceRequest &resources) {
+  if (RayConfig::instance().centralized_actor_scheduling()) {
+    auto &cluster_resource_manager =
+        cluster_lease_manager_.GetClusterResourceScheduler().GetClusterResourceManager();
+    cluster_resource_manager.SubtractNodeAvailableResources(
+        scheduling::NodeID(actor->GetNodeID().Binary()), resources);
+
+    actor->SetAcquiredResources(
+        static_cast<ResourceRequest &&>(const_cast<ResourceRequest &>(resources)));
+  }
+}
+
 }  // namespace gcs
 }  // namespace ray
