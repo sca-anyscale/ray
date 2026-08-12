@@ -1779,6 +1779,13 @@ void GcsActorManager::Initialize(const GcsInitData &gcs_init_data) {
             actor->UpdateLocalRayletAddress(actor_local_raylet_address);
           }
         }
+
+        if (RayConfig::instance().centralized_actor_scheduling()) {
+          // re-allocate resources for actor
+          const auto resources = MapFromProtobuf(actor_table_data.required_resources());
+          gcs_actor_scheduler_->ReallocateResources(
+              actor, ResourceMapToResourceRequest(resources, true));
+        }
       }
 
       if (!actor->IsDetached()) {

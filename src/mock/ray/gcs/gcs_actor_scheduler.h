@@ -39,6 +39,10 @@ class MockGcsActorSchedulerInterface : public GcsActorSchedulerInterface {
       ReleaseUnusedActorWorkers,
       ((const absl::flat_hash_map<NodeID, std::vector<WorkerID>> &node_to_workers)),
       (override));
+  MOCK_METHOD(void,
+              ReallocateResources,
+              (std::shared_ptr<GcsActor> actor, const ResourceRequest &resources),
+              (override));
 };
 
 }  // namespace gcs
@@ -93,6 +97,10 @@ class MockGcsActorScheduler : public GcsActorScheduler {
   MOCK_METHOD(void,
               RetryCreatingActorOnWorker,
               (std::shared_ptr<GcsActor> actor, std::shared_ptr<GcsLeasedWorker> worker),
+              (override));
+  MOCK_METHOD(void,
+              ReallocateResources,
+              (std::shared_ptr<GcsActor> actor, const ResourceRequest &resources),
               (override));
 };
 
