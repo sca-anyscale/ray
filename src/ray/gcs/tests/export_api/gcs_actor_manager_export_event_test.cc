@@ -54,6 +54,8 @@ class FakeActorScheduler : public gcs::GcsActorSchedulerInterface {
   void Schedule(std::shared_ptr<gcs::GcsActor> actor) override {
     actors.push_back(actor);
   }
+  void ReallocateResources(std::shared_ptr<GcsActor> actor,
+                           const ResourceRequest &resources) override {}
   void Reschedule(std::shared_ptr<gcs::GcsActor> actor) override {}
   void ReleaseUnusedActorWorkers(const absl::flat_hash_map<NodeID, std::vector<WorkerID>>
                                      &node_to_workers) override {}

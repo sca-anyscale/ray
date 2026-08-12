@@ -95,6 +95,13 @@ class GcsActorSchedulerInterface {
   /// \param actor The actor to be destoryed.
   virtual void OnActorDestruction(std::shared_ptr<GcsActor> actor) = 0;
 
+  /// Allocate resources for a reloaded actor on GCS restart
+  ///
+  /// \param actor The actor to update
+  /// \param resources The resource map reloaded from external storage
+  virtual void ReallocateResources(std::shared_ptr<GcsActor> actor,
+                                   const ResourceRequest &resources) = 0;
+
   virtual std::string DebugString() const = 0;
 
   virtual ~GcsActorSchedulerInterface() = default;
@@ -177,6 +184,13 @@ class GcsActorScheduler : public GcsActorSchedulerInterface {
   ///
   /// \param actor The actor to be destoryed.
   void OnActorDestruction(std::shared_ptr<GcsActor> actor) override;
+
+  /// Allocate resources for a reloaded actor on GCS restart
+  ///
+  /// \param actor The actor to update
+  /// \param resources The resource map reloaded from external storage
+  void ReallocateResources(std::shared_ptr<GcsActor> actor,
+                           const ResourceRequest &resources) override;
 
   std::string DebugString() const override;
 
