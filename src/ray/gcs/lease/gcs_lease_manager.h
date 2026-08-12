@@ -62,6 +62,11 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
                                   rpc::GcsCancelWorkerLeaseReply *reply,
                                   rpc::SendReplyCallback send_reply_callback) override;
 
+  /// Handle a new node being added.
+  ///
+  /// \param node_id The specified node id.
+  void OnNodeAdd(const NodeID &node_id);
+
   /// Handle a node death. This will remove the lease information for that node.
   ///
   /// \param node_id The specified node id.
@@ -71,10 +76,7 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   ///
   /// \param node_id ID of the node where the dead worker was located.
   /// \param worker_id ID of the dead worker.
-  /// \param exit_type exit reason of the dead worker.
-  /// \param creation_task_exception if this arg is set, this worker is died because of an
-  /// exception thrown in actor's creation task.
-  void OnWorkerDead(const WorkerID &worker_id);
+  void OnWorkerDead(const NodeID &node_id, const WorkerID &worker_id);
 
   void ConsumeSyncMessage(std::shared_ptr<const syncer::RaySyncMessage> message) override;
   std::optional<syncer::RaySyncMessage> CreateSyncMessage(
@@ -89,7 +91,8 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   void ReleaseLeases(const NodeID &node_id, rpc::syncer::LeaseView &message);
   void ReleaseLease(const NodeID &node_id,
                     const LeaseID &lease_id,
-                    const RayLease &lease);
+                    const RayLease &lease,
+                    const bool erase);
 
   ClusterLeaseManager &cluster_lease_manager_;
   GcsNodeManager &gcs_node_manager_;
@@ -99,6 +102,9 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
 
   /// Map of leased workers to their worker address and lease specification.
   absl::flat_hash_map<LeaseID, std::shared_ptr<LeaseInfo>> known_leases_;
+  /// Map of node IDs to their lease information
+  absl::flat_hash_map<NodeID, absl::flat_hash_map<LeaseID, std::shared_ptr<LeaseInfo>>>
+      node_leases_;
 
   // Debug info.
   enum CountType {

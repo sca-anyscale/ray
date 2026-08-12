@@ -79,7 +79,7 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
         rreq->set_grant_or_reject(true);
         raylet_client->RequestWorkerLease(
             std::move(*rreq),
-            [this, lease, lease_id, reply, send_reply_callback](
+            [this, node_id, lease, lease_id, reply, send_reply_callback](
                 const Status &lease_status,
                 const rpc::RequestWorkerLeaseReply &raylet_resp) {
               RAY_LOG(DEBUG) << "LSTATUS " << lease_status;
@@ -97,6 +97,9 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
                     lease, raylet_resp.worker_address(), raylet_resp.worker_pid());
                 RAY_LOG(DEBUG) << "LEASEINFO " << lease_info->DebugString();
                 known_leases_.emplace(lease_id, lease_info);
+
+                auto &leases = node_leases_[node_id];
+                leases.emplace(lease_id, lease_info);
               }
 
               GCS_RPC_SEND_REPLY(send_reply_callback, reply, lease_status);
@@ -157,14 +160,15 @@ void GcsLeaseManager::HandleGcsReturnWorkerLease(
                                    rreq.disconnect_worker_error_detail(),
                                    rreq.worker_exiting());
 
-  ReleaseLease(node_id, lease_id, lease_info->Lease());
+  ReleaseLease(node_id, lease_id, lease_info->Lease(), true);
   GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
   ++counts_[CountType::RETURN_WORKER_LEASE_REQUEST];
 }
 
 void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
                                    const LeaseID &lease_id,
-                                   const RayLease &lease) {
+                                   const RayLease &lease,
+                                   const bool erase) {
   if (!known_leases_.contains(lease_id)) {
     RAY_LOG(DEBUG).WithField(node_id).WithField(lease_id) << "UNKNOWN LEASE";
     ++counts_[CountType::UNKNOWN_LEASE_RELEASE];
@@ -172,7 +176,15 @@ void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
   }
 
   // remove lease from known_leases_
-  known_leases_.erase(lease_id);
+  if (erase) {
+    known_leases_.erase(lease_id);
+    const auto it = node_leases_.find(node_id);
+    RAY_CHECK(it != node_leases_.end());
+    it->second.erase(lease_id);
+    if (it->second.empty()) {
+      node_leases_.erase(node_id);
+    }
+  }
 
   // release the resources for the lease
   auto &cluster_resource_manager =
@@ -208,16 +220,52 @@ void GcsLeaseManager::HandleGcsCancelWorkerLease(
   ++counts_[CountType::CANCEL_WORKER_LEASE_REQUEST];
 }
 
-void GcsLeaseManager::OnNodeDead(const NodeID &node_id) {
-  absl::erase_if(known_leases_, [&](const auto &kv) {
-    return NodeID::FromBinary(kv.second->Address().node_id()) == node_id;
-  });
+void GcsLeaseManager::OnNodeAdd(const NodeID &node_id) {
+  node_leases_[node_id] = absl::flat_hash_map<LeaseID, std::shared_ptr<LeaseInfo>>();
 }
 
-void GcsLeaseManager::OnWorkerDead(const WorkerID &worker_id) {
-  absl::erase_if(known_leases_, [&](const auto &kv) {
-    return WorkerID::FromBinary(kv.second->Address().worker_id()) == worker_id;
-  });
+void GcsLeaseManager::OnNodeDead(const NodeID &node_id) {
+  const auto it = node_leases_.find(node_id);
+  if (it == node_leases_.end()) {
+    return;
+  }
+  std::vector<LeaseID> removed;
+  for (const auto &[lease_id, lease_info] : it->second) {
+    RAY_CHECK(NodeID::FromBinary(lease_info->Address().node_id()) == node_id);
+    ReleaseLease(node_id, lease_id, lease_info->Lease(), false);
+    removed.push_back(lease_id);
+  }
+
+  for (const auto &lease_id : removed) {
+    known_leases_.erase(lease_id);
+    it->second.erase(lease_id);
+  }
+  node_leases_.erase(node_id);
+}
+
+void GcsLeaseManager::OnWorkerDead(const NodeID &node_id, const WorkerID &worker_id) {
+  const auto it = node_leases_.find(node_id);
+  if (it == node_leases_.end()) {
+    return;
+  }
+  std::vector<LeaseID> removed;
+  for (const auto &[lease_id, lease_info] : it->second) {
+    if (WorkerID::FromBinary(lease_info->Address().worker_id()) == worker_id) {
+      ReleaseLease(NodeID::FromBinary(lease_info->Address().node_id()),
+                   lease_id,
+                   lease_info->Lease(),
+                   false);
+      removed.push_back(lease_id);
+    }
+  }
+
+  for (const auto &lease_id : removed) {
+    known_leases_.erase(lease_id);
+    it->second.erase(lease_id);
+  }
+  if (it->second.empty()) {
+    node_leases_.erase(node_id);
+  }
 }
 
 void GcsLeaseManager::ConsumeSyncMessage(
@@ -254,7 +302,7 @@ void GcsLeaseManager::ReleaseLeases(const NodeID &node_id,
                                     rpc::syncer::LeaseView &message) {
   for (const auto &lease : message.leases()) {
     RayLease ray_lease(lease.lease());
-    ReleaseLease(node_id, ray_lease.GetLeaseSpecification().LeaseId(), ray_lease);
+    ReleaseLease(node_id, ray_lease.GetLeaseSpecification().LeaseId(), ray_lease, true);
     ++counts_[CountType::LEASES_RELEASED_BY_RAYLET];
   }
 }
@@ -281,6 +329,9 @@ void GcsLeaseManager::ReserveLease(const NodeID &node_id,
   auto lease_info = std::make_shared<LeaseInfo>(
       ray_lease, lease_message.address(), lease_message.pid());
   known_leases_.emplace(lease_id, lease_info);
+
+  auto leases = node_leases_[node_id];
+  leases.emplace(lease_id, lease_info);
 
   // acquire the resources for the lease
   auto &cluster_resource_manager =
