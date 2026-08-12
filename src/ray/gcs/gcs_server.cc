@@ -1085,6 +1085,7 @@ void GcsServer::InstallEventListeners() {
         gcs_placement_group_manager_->OnNodeAdd(node_id);
         gcs_actor_manager_->SchedulePendingActors();
         gcs_autoscaler_state_manager_->OnNodeAdd(*node);
+        gcs_lease_manager_->OnNodeAdd(node_id);
 
         // Initialize the metrics exporter when the head node registers,
         // but only if we haven't already initialized it (i.e., when using
@@ -1155,7 +1156,7 @@ void GcsServer::InstallEventListeners() {
                                          worker_failure_data->exit_type(),
                                          worker_failure_data->exit_detail(),
                                          creation_task_exception);
-        gcs_lease_manager_->OnWorkerDead(worker_id);
+        gcs_lease_manager_->OnWorkerDead(node_id, worker_id);
         pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         observability_pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         gcs_task_manager_->OnWorkerDead(worker_id, worker_failure_data);
