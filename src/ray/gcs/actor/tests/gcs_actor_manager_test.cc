@@ -71,6 +71,9 @@ class MockActorScheduler : public gcs::GcsActorSchedulerInterface {
   MOCK_CONST_METHOD0(DebugString, std::string());
   MOCK_METHOD1(CancelOnNode, std::vector<ActorID>(const NodeID &node_id));
   MOCK_METHOD2(CancelOnWorker, ActorID(const NodeID &node_id, const WorkerID &worker_id));
+  MOCK_METHOD2(ReallocateResources,
+               void(std::shared_ptr<gcs::GcsActor> actor,
+                    const ResourceRequest &resources));
   MOCK_METHOD3(CancelOnLeasing,
                void(const NodeID &node_id,
                     const ActorID &actor_id,
