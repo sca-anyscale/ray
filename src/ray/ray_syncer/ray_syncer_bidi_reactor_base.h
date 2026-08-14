@@ -75,7 +75,8 @@ class RaySyncerBidiReactorBase : public RaySyncerBidiReactor, public T {
     if (node_versions[message->message_type()] >= message->version()) {
       RAY_LOG(DEBUG) << "Dropping sync message with stale version. latest version: "
                      << node_versions[message->message_type()]
-                     << ", dropped message version: " << message->version();
+                     << ", dropped message version: " << message->version()
+                     << ", dropped message type: " << message->message_type();
       return false;
     }
 
@@ -184,7 +185,7 @@ class RaySyncerBidiReactorBase : public RaySyncerBidiReactor, public T {
     for (const auto &[key, message] : sending_buffer_) {
       RAY_LOG(DEBUG) << "Adding message version: " << message->version()
                      << " from node: " << NodeID::FromBinary(message->node_id())
-                     << " to message batch";
+                     << ", type " << message->message_type() << " to message batch";
       *message_batch->add_messages() = *message;
     }
 
