@@ -20,11 +20,15 @@ namespace gcs {
 GcsLeaseManager::GcsLeaseManager(ClusterLeaseManager &cluster_lease_manager,
                                  GcsNodeManager &gcs_node_manager,
                                  instrumented_io_context &io_context,
-                                 rpc::RayletClientPool &raylet_client_pool)
+                                 rpc::RayletClientPool &raylet_client_pool,
+                                 ClockInterface &clock,
+                                 NodeID local_node_id)
     : cluster_lease_manager_(cluster_lease_manager),
       gcs_node_manager_(gcs_node_manager),
       io_context_(io_context),
-      raylet_client_pool_(raylet_client_pool) {}
+      raylet_client_pool_(raylet_client_pool),
+      clock_(clock),
+      local_node_id_(std::move(local_node_id)) {}
 
 void GcsLeaseManager::HandleGcsRequestWorkerLease(
     rpc::GcsRequestWorkerLeaseRequest request,
@@ -35,7 +39,6 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
   auto lease_id = LeaseID::FromBinary(req.lease_spec().lease_id());
 
   RAY_CHECK(RayConfig::instance().centralized_actor_scheduling() == true);
-  RAY_LOG(DEBUG) << "HANDLE1";
   // If the lease is already granted, this is a retry and forward the address of the
   // already leased worker to use
   if (known_leases_.contains(lease_id)) {
@@ -67,8 +70,6 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
         auto rreq = request.mutable_request();
         auto rresp = reply->mutable_reply();
         const auto &retry_at_raylet_address = rresp->retry_at_raylet_address();
-        RAY_LOG(DEBUG) << "GETLEASE " << rresp->worker_address().DebugString();
-        RAY_LOG(DEBUG) << "GETLEASE " << retry_at_raylet_address.DebugString();
         auto node_id = NodeID::FromBinary(retry_at_raylet_address.node_id());
         auto node = gcs_node_manager_.GetAliveNode(node_id);
         RAY_CHECK(node.has_value());
@@ -82,12 +83,6 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
             [this, node_id, lease, lease_id, reply, send_reply_callback](
                 const Status &lease_status,
                 const rpc::RequestWorkerLeaseReply &raylet_resp) {
-              RAY_LOG(DEBUG) << "LSTATUS " << lease_status;
-              const auto &final_address = raylet_resp.retry_at_raylet_address();
-              RAY_LOG(DEBUG) << "GETLEASE2 "
-                             << raylet_resp.worker_address().DebugString();
-              RAY_LOG(DEBUG) << "GETLEASE2 " << final_address.DebugString();
-
               reply->mutable_reply()->CopyFrom(raylet_resp);
 
               if (lease_status.ok()) {
@@ -95,7 +90,6 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
                 // address->CopyFrom(raylet_resp.worker_address());
                 auto lease_info = std::make_shared<LeaseInfo>(
                     lease, raylet_resp.worker_address(), raylet_resp.worker_pid());
-                RAY_LOG(DEBUG) << "LEASEINFO " << lease_info->DebugString();
                 known_leases_.emplace(lease_id, lease_info);
 
                 auto &leases = node_leases_[node_id];
@@ -141,10 +135,7 @@ void GcsLeaseManager::HandleGcsReturnWorkerLease(
     return;
   }
 
-  RAY_LOG(DEBUG).WithField(lease_id) << "LL0";
   auto lease_info = known_leases_[lease_id];
-  RAY_LOG(DEBUG) << "LL1 " << lease_info->Lease().DebugString();
-  // RAY_LOG(DEBUG) << "LLINFO " << lease_info->DebugString();
   auto worker_address = lease_info->Address();
 
   auto node_id = NodeID::FromBinary(worker_address.node_id());
@@ -181,9 +172,6 @@ void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
     const auto it = node_leases_.find(node_id);
     RAY_CHECK(it != node_leases_.end());
     it->second.erase(lease_id);
-    if (it->second.empty()) {
-      node_leases_.erase(node_id);
-    }
   }
 
   // release the resources for the lease
@@ -191,13 +179,9 @@ void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
       cluster_lease_manager_.GetClusterResourceScheduler().GetClusterResourceManager();
 
   // XXX do we get placement resources for non-actors?
-  RAY_LOG(DEBUG) << "LLINFO " << lease.DebugString();
   cluster_resource_manager.AddNodeAvailableResources(
       scheduling::NodeID(node_id.Binary()),
       lease.GetLeaseSpecification().GetRequiredPlacementResources());
-  cluster_resource_manager.AddNodeAvailableResources(
-      scheduling::NodeID(node_id.Binary()),
-      lease.GetLeaseSpecification().GetRequiredResources());
 }
 
 void GcsLeaseManager::HandleGcsCancelWorkerLease(
@@ -241,6 +225,7 @@ void GcsLeaseManager::OnNodeDead(const NodeID &node_id) {
     it->second.erase(lease_id);
   }
   node_leases_.erase(node_id);
+  node_lease_versions_.erase(node_id);
 }
 
 void GcsLeaseManager::OnWorkerDead(const NodeID &node_id, const WorkerID &worker_id) {
@@ -263,18 +248,20 @@ void GcsLeaseManager::OnWorkerDead(const NodeID &node_id, const WorkerID &worker
     known_leases_.erase(lease_id);
     it->second.erase(lease_id);
   }
-  if (it->second.empty()) {
-    node_leases_.erase(node_id);
-  }
 }
 
 void GcsLeaseManager::ConsumeSyncMessage(
     std::shared_ptr<const syncer::RaySyncMessage> message) {
   io_context_.dispatch(
       [this, message]() {
-        if (message->message_type() == rpc::syncer::MessageType::COMMANDS) {
-          // COMMANDS channel is currently unused.
+        if (message->message_type() == rpc::syncer::MessageType::LEASE_ACK) {
+          // LEASE_ACKs are not sent by the raylet, and we don't need our own
         } else if (message->message_type() == rpc::syncer::MessageType::LEASE_VIEW) {
+          const NodeID node_id = NodeID::FromBinary(message->node_id());
+          RAY_LOG(DEBUG).WithField(node_id)
+              << "RECEIVE MESSAGE " << message->message_type();
+          node_lease_versions_[node_id] = message->version();
+
           rpc::syncer::LeaseView lease_view_sync_message;
           lease_view_sync_message.ParseFromString(message->sync_message());
 
@@ -285,12 +272,14 @@ void GcsLeaseManager::ConsumeSyncMessage(
 
           if (lease_view_sync_message.lease_status() ==
               rpc::syncer::LeaseStatus::REMOVED) {
-            ReleaseLeases(NodeID::FromBinary(message->node_id()),
-                          lease_view_sync_message);
+            RAY_LOG(DEBUG) << "REMOVE_LEASE";
+            ReleaseLeases(node_id, lease_view_sync_message);
           } else {
-            ReserveLeases(NodeID::FromBinary(message->node_id()),
-                          lease_view_sync_message);
+            RAY_LOG(DEBUG) << "RESERVE_LEASE";
+            ReserveLeases(node_id, lease_view_sync_message);
           }
+          // we need a value that increases after a restart, rather than being reset
+          syncer_version_ = clock_.SteadyNowMillis();
         } else {
           RAY_LOG(FATAL) << "Unsupported message type: " << message->message_type();
         }
@@ -330,7 +319,7 @@ void GcsLeaseManager::ReserveLease(const NodeID &node_id,
       ray_lease, lease_message.address(), lease_message.pid());
   known_leases_.emplace(lease_id, lease_info);
 
-  auto leases = node_leases_[node_id];
+  auto &leases = node_leases_[node_id];
   leases.emplace(lease_id, lease_info);
 
   // acquire the resources for the lease
@@ -343,17 +332,38 @@ void GcsLeaseManager::ReserveLease(const NodeID &node_id,
   cluster_resource_manager.SubtractNodeAvailableResources(
       scheduling::NodeID(node_id.Binary()), resources);
 
-  resources = ResourceMapToResourceRequest(
-      ray_lease.GetLeaseSpecification().GetRequiredResources().GetResourceMap(), true);
-  cluster_resource_manager.SubtractNodeAvailableResources(
-      scheduling::NodeID(node_id.Binary()), resources);
-
   ++counts_[CountType::LEASES_RESERVED_BY_RAYLET];
 }
 
 std::optional<syncer::RaySyncMessage> GcsLeaseManager::CreateSyncMessage(
     int64_t after_version, syncer::MessageType message_type) const {
-  return std::nullopt;
+  RAY_LOG(DEBUG) << "CREATESYNC " << syncer_version_ << " " << after_version << " "
+                 << message_type;
+  if (message_type != syncer::MessageType::LEASE_ACK) {
+    return std::nullopt;
+  }
+
+  if (syncer_version_ <= after_version) {
+    return std::nullopt;
+  }
+
+  syncer::RaySyncMessage msg;
+  msg.set_version(syncer_version_);
+  msg.set_node_id(local_node_id_.Binary());
+  msg.set_message_type(syncer::MessageType::LEASE_ACK);
+
+  rpc::syncer::LeaseAck lease_ack_msg;
+  auto version_map = lease_ack_msg.mutable_node_versions();
+
+  for (const auto &[node_id, version] : node_lease_versions_) {
+    version_map->insert({node_id.Hex(), version});
+  }
+
+  std::string serialized_msg;
+  RAY_CHECK(lease_ack_msg.SerializeToString(&serialized_msg));
+  msg.set_sync_message(std::move(serialized_msg));
+
+  return std::make_optional(std::move(msg));
 }
 
 std::string GcsLeaseManager::DebugString() const {
@@ -372,7 +382,7 @@ std::string GcsLeaseManager::DebugString() const {
          << "\n- Leases released by raylet count: "
          << counts_[CountType::LEASES_RELEASED_BY_RAYLET]
          << "\n- Duplicate leases reserved by raylet count: "
-         << counts_[CountType::UNKNOWN_LEASE_RELEASE]
+         << counts_[CountType::DUP_LEASE_RESERVE]
          << "\n- Leases reserved by raylet count: "
          << counts_[CountType::LEASES_RESERVED_BY_RAYLET]
          << "\n- Known leases: " << known_leases_.size();
