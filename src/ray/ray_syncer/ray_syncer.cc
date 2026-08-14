@@ -213,11 +213,11 @@ bool RaySyncer::BroadcastMessageIfNewVersion(MessageType message_type) {
 void RaySyncer::BroadcastMessage(std::shared_ptr<const RaySyncMessage> message) {
   io_context_.dispatch(
       [this, message] {
-        // The message is stale. Just skip this one.
         RAY_LOG(DEBUG) << "Receive message from: "
                        << NodeID::FromBinary(message->node_id()) << " to "
                        << NodeID::FromBinary(GetLocalNodeID());
         if (!node_state_->ConsumeSyncMessage(message)) {
+          // The message is stale. Just skip this one.
           return;
         }
         for (auto &reactor : sync_reactors_) {
