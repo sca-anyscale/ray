@@ -84,6 +84,7 @@ cmake(
     # remote cache -- breaking the aarch64 core wheel build. Make uses the
     # preinstalled toolchain (like jemalloc/openssl) and needs no bootstrap.
     generate_args = ["-G", "Unix Makefiles"],
+    build_args = ["--parallel", "4"],
     lib_source = ":all_srcs",
     out_static_libs = ["librocksdb.a"],
     visibility = ["//visibility:public"],
