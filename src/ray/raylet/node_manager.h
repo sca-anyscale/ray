@@ -117,6 +117,8 @@ struct NodeManagerConfig {
   uint64_t report_resources_period_ms;
   /// The time between reports resources in milliseconds.
   uint64_t report_leases_period_ms;
+  /// The time between version updates when retrying lease sync after a GCS restart
+  uint64_t retry_leases_period_ms;
   /// The store socket name.
   std::string store_socket_name;
   /// The path of this ray log dir.
@@ -234,18 +236,19 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
   /// Get the port of the node manager rpc server.
   int GetServerPort() const { return node_manager_server_.GetPort(); }
 
-  // Consume a RaySyncer sync message from another Raylet.
+  // Consume a RaySyncer sync message from another Raylet or GCS.
   //
-  // The two types of messages that are received are:
+  // The types of messages that are received are:
   //   - RESOURCE_VIEW: an update of the resources available on another Raylet.
   //   - COMMANDS: a request to run the Python garbage collector globally across Raylets.
+  //   - LEASE_ACK: an acknowledgement of lease state from GCS
   void ConsumeSyncMessage(std::shared_ptr<const syncer::RaySyncMessage> message) override;
 
   // Generate a RaySyncer sync message to be sent to other Raylets.
   //
-  // This is currently only used to generate messages for the COMMANDS channel to request
-  // other Raylets to call the Python garbage collector, and is only called on demand
-  // (not periodically polled by the RaySyncer code).
+  // This is used to generate messages for the COMMANDS channel to request
+  // other Raylets to call the Python garbage collector, and also to send lease
+  // state to GCS when centralized scheduling is in use
   std::optional<syncer::RaySyncMessage> CreateSyncMessage(
       int64_t after_version, syncer::MessageType message_type) const override;
 
@@ -383,9 +386,10 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
   void ReleaseWorker(const LeaseID &lease_id) {
     RAY_CHECK(leased_workers_.contains(lease_id));
     auto it = leased_workers_.find(lease_id);  // expected to be found due to above check
-    absl::MutexLock lock(&removed_workers_lock_);
-    version_++;
-    removed_workers_.emplace(version_, std::move(it->second));
+    if (!it->second->GetIsActorWorker()) {
+      lease_version_++;
+      removed_workers_.emplace(lease_version_, std::move(it->second));
+    }
     leased_workers_.erase(lease_id);
     SetIdleIfLeaseEmpty();
   }
@@ -912,6 +916,8 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
   uint64_t report_resources_period_ms_;
   /// The period used for the leases report timer.
   uint64_t report_leases_period_ms_;
+  /// The period used for retrying lease sync after GCS restarts
+  uint64_t retry_leases_period_ms_;
   /// Incremented each time we encounter a potential resource deadlock condition.
   /// This is reset to zero when the condition is cleared.
   int resource_deadlock_warned_ = 0;
@@ -954,11 +960,13 @@ class NodeManager : public rpc::NodeManagerServiceHandler,
   /// Map of leased workers to their lease ids.
   absl::flat_hash_map<LeaseID, std::shared_ptr<WorkerInterface>> &leased_workers_;
 
-  mutable absl::Mutex removed_workers_lock_;
-  absl::flat_hash_map<int64_t, std::shared_ptr<WorkerInterface>> removed_workers_
-      ABSL_GUARDED_BY(removed_workers_lock_);
+  absl::flat_hash_map<int64_t, std::shared_ptr<WorkerInterface>> removed_workers_;
   // Version of this resource. It will incr by one whenever the state changed.
-  int64_t version_ = 0;
+  int64_t lease_version_ = 0;
+
+  // GCS restart indicator; true when we are still sending active lease info,
+  // false otherwise
+  bool lease_recovery_in_progress_ = false;
 
   /// Optional extra information about why the worker failed.
   absl::flat_hash_map<LeaseID, ray::TaskFailureEntry> worker_failure_reasons_;

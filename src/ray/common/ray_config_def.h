@@ -67,6 +67,9 @@ RAY_CONFIG(uint64_t, raylet_report_resources_period_milliseconds, 100)
 /// The duration between reporting leases sent by the raylets.
 RAY_CONFIG(uint64_t, raylet_report_leases_period_milliseconds, 100)
 
+/// The duration between updating the lease sync version when GCS restarts
+RAY_CONFIG(uint64_t, raylet_retry_leases_period_milliseconds, 200)
+
 /// The duration between raylet check memory pressure and send gc request
 RAY_CONFIG(uint64_t, raylet_check_gc_period_milliseconds, 100)
 

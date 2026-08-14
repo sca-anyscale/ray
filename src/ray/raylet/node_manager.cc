@@ -247,6 +247,7 @@ NodeManager::NodeManager(
       periodical_runner_(periodical_runner),
       report_resources_period_ms_(config.report_resources_period_ms),
       report_leases_period_ms_(config.report_leases_period_ms),
+      retry_leases_period_ms_(config.retry_leases_period_ms),
       initial_config_(config),
       lease_dependency_manager_(lease_dependency_manager),
       wait_manager_(/*is_object_local*/
@@ -302,6 +303,15 @@ NodeManager::NodeManager(
       [this]() { CheckForUnexpectedWorkerDisconnects(); },
       RayConfig::instance().raylet_check_for_unexpected_worker_disconnect_interval_ms(),
       "NodeManager.CheckForUnexpectedWorkerDisconnects");
+
+  if (RayConfig::instance().centralized_actor_scheduling()) {
+    periodical_runner_->RunFnPeriodically(
+        [this]() {
+          if (lease_recovery_in_progress_) lease_version_++;
+        },
+        retry_leases_period_ms_,
+        "NodeManager.LeaseVersionIncrement");
+  }
 
   RAY_CHECK_OK(store_client_->Connect(config.store_socket_name));
   // Run the node manager rpc server.
@@ -404,6 +414,12 @@ void NodeManager::RegisterGcs() {
       ray_syncer_.Register(
           /* message_type */ syncer::MessageType::LEASE_VIEW,
           /* reporter */ this,
+          /* receiver */ nullptr,
+          /* pull_from_reporter_interval_ms */
+          report_leases_period_ms_);
+      ray_syncer_.Register(
+          /* message_type */ syncer::MessageType::LEASE_ACK,
+          /* reporter */ nullptr,
           /* receiver */ this,
           /* pull_from_reporter_interval_ms */
           report_leases_period_ms_);
@@ -1148,6 +1164,14 @@ void NodeManager::HandleNotifyGCSRestart(rpc::NotifyGCSRestartRequest request,
   for (const auto &driver : drivers) {
     driver->AsyncNotifyGCSRestart();
   }
+
+  if (RayConfig::instance().centralized_actor_scheduling()) {
+    lease_version_++;
+    lease_recovery_in_progress_ = true;
+    RAY_LOG(DEBUG) << "Starting lease recovery";
+    ray_syncer_.BroadcastMessageIfNewVersion(rpc::syncer::MessageType::LEASE_VIEW);
+  }
+
   send_reply_callback(Status::OK(), nullptr, nullptr);
 }
 
@@ -3124,30 +3148,48 @@ void NodeManager::ConsumeSyncMessage(
     if (commands_sync_message.should_global_gc()) {
       local_gc_triggered_by_global_gc_ = true;
     }
-  } else if (message->message_type() == syncer::MessageType::LEASE_VIEW) {
-    NodeID node_id = NodeID::FromBinary(message->node_id());
-    if (node_id != self_node_id_) {
+  } else if (message->message_type() == syncer::MessageType::LEASE_ACK) {
+    rpc::syncer::LeaseAck lease_ack_message;
+    lease_ack_message.ParseFromString(message->sync_message());
+
+    auto node_versions = MapFromProtobuf(lease_ack_message.node_versions());
+    if (!node_versions.contains(self_node_id_.Hex())) {
       return;
     }
 
-    int64_t version = message->version();
-    absl::MutexLock lock(&removed_workers_lock_);
-    RAY_LOG(DEBUG) << "OLD SIZE " << version << " " << removed_workers_.size();
-    absl::erase_if(removed_workers_,
-                   [version](const auto &entry) { return entry.first <= version; });
-    RAY_LOG(DEBUG) << "NEW SIZE " << version << " " << removed_workers_.size();
+    auto version = node_versions[self_node_id_.Hex()];
+
+    if (lease_recovery_in_progress_) {
+      if (lease_version_ > version) {
+        lease_version_++;
+        ray_syncer_.BroadcastMessageIfNewVersion(syncer::MessageType::LEASE_VIEW);
+      } else {
+        lease_recovery_in_progress_ = false;
+        RAY_LOG(DEBUG) << "Lease recovery complete";
+      }
+    } else {
+      RAY_LOG(DEBUG) << "OLD SIZE " << version << " " << removed_workers_.size();
+      absl::erase_if(removed_workers_,
+                     [version](const auto &entry) { return entry.first <= version; });
+      RAY_LOG(DEBUG) << "NEW SIZE " << version << " " << removed_workers_.size();
+    }
   }
 }
 
 std::optional<syncer::RaySyncMessage> NodeManager::CreateSyncMessage(
     int64_t after_version, syncer::MessageType message_type) const {
-  // This method is only called for the COMMANDS and LEASE_VIEW channels.
+  // This method is only called for the COMMANDS, LEASE_VIEW, and LEASE_ACK channels.
   // The RESOURCE_VIEW channel goes through the LocalResourceManager.
   RAY_CHECK(message_type == syncer::MessageType::COMMANDS ||
-            message_type == syncer::MessageType::LEASE_VIEW);
+            message_type == syncer::MessageType::LEASE_VIEW ||
+            message_type == syncer::MessageType::LEASE_ACK);
 
   if (message_type == syncer::MessageType::LEASE_VIEW) {
     return CreateLeaseMessage(after_version, message_type);
+  }
+
+  if (message_type == syncer::MessageType::LEASE_ACK) {
+    return std::nullopt;
   }
 
   // Serialize the COMMANDS message to a byte string to be nested inside the sync message.
@@ -3168,30 +3210,47 @@ std::optional<syncer::RaySyncMessage> NodeManager::CreateSyncMessage(
 
 std::optional<syncer::RaySyncMessage> NodeManager::CreateLeaseMessage(
     int64_t after_version, syncer::MessageType message_type) const {
-  absl::MutexLock lock(&removed_workers_lock_);
-  if (removed_workers_.empty() || version_ <= after_version) {
-    RAY_LOG(DEBUG) << "EMPTY " << version_ << " " << after_version;
-    return std::nullopt;
+  if (!lease_recovery_in_progress_) {
+    // we are not restarting, so skip sending an update if we are up-to-date
+    if (removed_workers_.empty() || lease_version_ <= after_version) {
+      return std::nullopt;
+    }
   }
 
   syncer::RaySyncMessage msg;
-  msg.set_version(version_);
+  msg.set_version(lease_version_);
   msg.set_node_id(self_node_id_.Binary());
   msg.set_message_type(syncer::MessageType::LEASE_VIEW);
 
   rpc::syncer::LeaseView lease_view_message;
-  lease_view_message.set_lease_status(rpc::syncer::LeaseStatus::REMOVED);
 
-  for (const auto &[_, worker] : removed_workers_) {
-    rpc::syncer::LeaseAndWorker worker_msg;
-    worker_msg.mutable_address()->CopyFrom(worker->GetOwnerAddress());
-    worker_msg.set_pid(worker->GetProcess().GetId());
-    worker_msg.mutable_lease()->CopyFrom(
-        worker->GetGrantedLease().GetLeaseSpecification().GetMessage());
-    lease_view_message.add_leases()->CopyFrom(worker_msg);
+  // TODO(sca): dedup
+  if (lease_recovery_in_progress_) {
+    lease_view_message.set_lease_status(rpc::syncer::LeaseStatus::ACTIVE);
+
+    for (const auto &[_, worker] : leased_workers_) {
+      if (worker->GetGrantedLease().GetLeaseSpecification().IsActorCreationTask()) {
+        continue;
+      }
+      rpc::syncer::LeaseAndWorker worker_msg;
+      worker_msg.mutable_address()->CopyFrom(worker->GetOwnerAddress());
+      worker_msg.set_pid(worker->GetProcess().GetId());
+      worker_msg.mutable_lease()->CopyFrom(
+          worker->GetGrantedLease().GetLeaseSpecification().GetMessage());
+      lease_view_message.add_leases()->CopyFrom(worker_msg);
+    }
+  } else {
+    lease_view_message.set_lease_status(rpc::syncer::LeaseStatus::REMOVED);
+
+    for (const auto &[_, worker] : removed_workers_) {
+      rpc::syncer::LeaseAndWorker worker_msg;
+      worker_msg.mutable_address()->CopyFrom(worker->GetOwnerAddress());
+      worker_msg.set_pid(worker->GetProcess().GetId());
+      worker_msg.mutable_lease()->CopyFrom(
+          worker->GetGrantedLease().GetLeaseSpecification().GetMessage());
+      lease_view_message.add_leases()->CopyFrom(worker_msg);
+    }
   }
-
-  RAY_LOG(DEBUG) << "LEASES " << lease_view_message.DebugString();
 
   std::string serialized_msg;
   RAY_CHECK(lease_view_message.SerializeToString(&serialized_msg));
