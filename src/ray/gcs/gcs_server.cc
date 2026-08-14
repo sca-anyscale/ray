@@ -802,6 +802,7 @@ void GcsServer::InitGcsResourceLoadPuller() {
 }
 
 void GcsServer::InitClusterResourceScheduler() {
+#if 0
   if (GetStorageType() != StorageType::IN_MEMORY) {
     cluster_resource_storage_ = std::make_unique<ClusterResourceStorage>(
         gcs_table_storage_.get(), io_context_provider_.GetDefaultIOContext());
@@ -810,6 +811,10 @@ void GcsServer::InitClusterResourceScheduler() {
     cluster_resource_storage_ =
         std::make_unique<ray::raylet::RayletClusterResourceStorage>();
   }
+#else
+  cluster_resource_storage_ =
+      std::make_unique<ray::raylet::RayletClusterResourceStorage>();
+#endif
 
   cluster_resource_scheduler_ = std::make_shared<ClusterResourceScheduler>(
       // See https://github.com/ray-project/ray/pull/65271 for why the GCS
