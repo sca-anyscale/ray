@@ -48,7 +48,9 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   GcsLeaseManager(ClusterLeaseManager &cluster_lease_manager,
                   GcsNodeManager &gcs_node_manager,
                   instrumented_io_context &io_context,
-                  rpc::RayletClientPool &raylet_client_pool);
+                  rpc::RayletClientPool &raylet_client_pool,
+                  ClockInterface &clock,
+                  NodeID local_node_id);
 
   void HandleGcsRequestWorkerLease(rpc::GcsRequestWorkerLeaseRequest request,
                                    rpc::GcsRequestWorkerLeaseReply *reply,
@@ -105,6 +107,12 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   /// Map of node IDs to their lease information
   absl::flat_hash_map<NodeID, absl::flat_hash_map<LeaseID, std::shared_ptr<LeaseInfo>>>
       node_leases_;
+
+  ClockInterface &clock_;
+  NodeID local_node_id_;
+
+  absl::flat_hash_map<NodeID, int64_t> node_lease_versions_;
+  int64_t syncer_version_ = clock_.SteadyNowMillis();
 
   // Debug info.
   enum CountType {
