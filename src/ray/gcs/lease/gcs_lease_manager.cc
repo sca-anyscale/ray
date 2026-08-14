@@ -34,11 +34,28 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
     rpc::GcsRequestWorkerLeaseRequest request,
     rpc::GcsRequestWorkerLeaseReply *reply,
     rpc::SendReplyCallback send_reply_callback) {
-  auto req = request.request();
-  auto resp = reply->mutable_reply();
-  auto lease_id = LeaseID::FromBinary(req.lease_spec().lease_id());
+  auto req = request.mutable_request();
+  req->mutable_lease_spec()->set_is_centrally_scheduled(true);
+  bool grant_or_reject = req->grant_or_reject();
+  req->set_grant_or_reject(true);
 
+  auto resp = reply->mutable_reply();
+
+  LeaseRequestCallback callback = [reply,
+                                   send_reply_callback](const Status &lease_status) {
+    GCS_RPC_SEND_REPLY(send_reply_callback, reply, lease_status);
+  };
+
+  RequestWorkerLease(std::move(*req), resp, grant_or_reject, callback);
+}
+
+void GcsLeaseManager::RequestWorkerLease(const rpc::RequestWorkerLeaseRequest &request,
+                                         rpc::RequestWorkerLeaseReply *reply,
+                                         bool grant_or_reject,
+                                         LeaseRequestCallback lease_request_callback) {
   RAY_CHECK(RayConfig::instance().centralized_actor_scheduling() == true);
+  auto lease_id = LeaseID::FromBinary(request.lease_spec().lease_id());
+
   // If the lease is already granted, this is a retry and forward the address of the
   // already leased worker to use
   if (known_leases_.contains(lease_id)) {
@@ -46,58 +63,49 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
     auto worker_address = lease_info->Address();
     RAY_LOG(DEBUG) << "Lease " << lease_id
                    << " is already granted with worker: " << worker_address.worker_id();
-    resp->set_worker_pid(lease_info->ProcessId());
-    resp->mutable_worker_address()->set_ip_address(worker_address.ip_address());
-    resp->mutable_worker_address()->set_port(worker_address.port());
-    resp->mutable_worker_address()->set_worker_id(worker_address.worker_id());
-    resp->mutable_worker_address()->set_node_id(worker_address.node_id());
-    GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+    reply->set_worker_pid(lease_info->ProcessId());
+    reply->mutable_worker_address()->set_ip_address(worker_address.ip_address());
+    reply->mutable_worker_address()->set_port(worker_address.port());
+    reply->mutable_worker_address()->set_worker_id(worker_address.worker_id());
+    reply->mutable_worker_address()->set_node_id(worker_address.node_id());
     ++counts_[CountType::RETRIED_REQUEST_WORKER_LEASE_REQUEST];
+    lease_request_callback(Status::OK());
     return;
   }
 
-  // RayLease lease{req.lease_spec()};
-  RayLease lease{std::move(*req.mutable_lease_spec())};
+  RayLease lease{request.lease_spec()};
 
   RAY_CHECK(lease.GetLeaseSpecification().IsActorCreationTask() == false);
 
   auto send_reply_callback_wrapper =
-      [this, lease, lease_id, request, reply, send_reply_callback](
+      [this, lease, lease_id, request, reply, lease_request_callback](
           Status status,
           std::function<void()> success,
           std::function<void()> failure) mutable {
         RAY_LOG(DEBUG) << "STATUS " << status;
-        auto rreq = request.mutable_request();
-        auto rresp = reply->mutable_reply();
-        const auto &retry_at_raylet_address = rresp->retry_at_raylet_address();
+        const auto &retry_at_raylet_address = reply->retry_at_raylet_address();
         auto node_id = NodeID::FromBinary(retry_at_raylet_address.node_id());
         auto node = gcs_node_manager_.GetAliveNode(node_id);
         RAY_CHECK(node.has_value());
         auto raylet_client =
             raylet_client_pool_.GetOrConnectByAddress(retry_at_raylet_address);
 
-        rreq->mutable_lease_spec()->set_is_centrally_scheduled(true);
-        rreq->set_grant_or_reject(true);
         raylet_client->RequestWorkerLease(
-            std::move(*rreq),
-            [this, node_id, lease, lease_id, reply, send_reply_callback](
+            static_cast<rpc::RequestWorkerLeaseRequest &&>(
+                const_cast<rpc::RequestWorkerLeaseRequest &>(request)),
+            [this, node_id, lease, lease_id, reply, lease_request_callback](
                 const Status &lease_status,
                 const rpc::RequestWorkerLeaseReply &raylet_resp) {
-              reply->mutable_reply()->CopyFrom(raylet_resp);
+              reply->CopyFrom(raylet_resp);
 
               if (lease_status.ok()) {
-                // rpc::Address* address = raylet_resp.worker_address().New();
-                // address->CopyFrom(raylet_resp.worker_address());
                 auto lease_info = std::make_shared<LeaseInfo>(
                     lease, raylet_resp.worker_address(), raylet_resp.worker_pid());
-                known_leases_.emplace(lease_id, lease_info);
-
-                auto &leases = node_leases_[node_id];
-                leases.emplace(lease_id, lease_info);
+                Insert(lease_id, lease_info, node_id);
               }
 
-              GCS_RPC_SEND_REPLY(send_reply_callback, reply, lease_status);
               ++counts_[CountType::REQUEST_WORKER_LEASE_REQUEST];
+              lease_request_callback(lease_status);
             });
       };
 
@@ -107,31 +115,35 @@ void GcsLeaseManager::HandleGcsRequestWorkerLease(
         lease.GetLeaseSpecification().GetSchedulingClass(),
         lease_id,
         std::move(send_reply_callback_wrapper),
-        resp));
+        reply));
     return;
   }
 
   cluster_lease_manager_.QueueAndScheduleLease(
       std::move(lease),
-      req.grant_or_reject(),
-      req.is_selected_based_on_locality(),
-      {raylet::internal::ReplyCallback(std::move(send_reply_callback_wrapper), resp)});
+      grant_or_reject,
+      request.is_selected_based_on_locality(),
+      {raylet::internal::ReplyCallback(std::move(send_reply_callback_wrapper), reply)});
 }
 
 void GcsLeaseManager::HandleGcsReturnWorkerLease(
     rpc::GcsReturnWorkerLeaseRequest request,
     rpc::GcsReturnWorkerLeaseReply *reply,
     rpc::SendReplyCallback send_reply_callback) {
-  RAY_CHECK(RayConfig::instance().centralized_actor_scheduling() == true);
   // Read the resource spec submitted by the client.
   auto req = request.request();
 
-  auto lease_id = LeaseID::FromBinary(req.lease_id());
+  ReturnWorkerLease(req);
 
+  GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+  ++counts_[CountType::RETURN_WORKER_LEASE_REQUEST];
+}
+
+void GcsLeaseManager::ReturnWorkerLease(const rpc::ReturnWorkerLeaseRequest &request) {
+  RAY_CHECK(RayConfig::instance().centralized_actor_scheduling() == true);
+  const LeaseID lease_id = LeaseID::FromBinary(request.lease_id());
   // Check if this message is a retry
   if (!known_leases_.contains(lease_id)) {
-    ++counts_[CountType::RETURN_WORKER_LEASE_REQUEST];
-    GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
     return;
   }
 
@@ -144,16 +156,13 @@ void GcsLeaseManager::HandleGcsReturnWorkerLease(
 
   auto raylet_client = raylet_client_pool_.GetOrConnectByAddress(worker_address);
 
-  auto rreq = request.request();
   raylet_client->ReturnWorkerLease(worker_address.port(),
                                    lease_id,
-                                   rreq.disconnect_worker(),
-                                   rreq.disconnect_worker_error_detail(),
-                                   rreq.worker_exiting());
+                                   request.disconnect_worker(),
+                                   request.disconnect_worker_error_detail(),
+                                   request.worker_exiting());
 
   ReleaseLease(node_id, lease_id, lease_info->Lease(), true);
-  GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
-  ++counts_[CountType::RETURN_WORKER_LEASE_REQUEST];
 }
 
 void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
@@ -168,10 +177,7 @@ void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
 
   // remove lease from known_leases_
   if (erase) {
-    known_leases_.erase(lease_id);
-    const auto it = node_leases_.find(node_id);
-    RAY_CHECK(it != node_leases_.end());
-    it->second.erase(lease_id);
+    Erase(lease_id, node_id);
   }
 
   // release the resources for the lease
@@ -192,9 +198,7 @@ void GcsLeaseManager::HandleGcsCancelWorkerLease(
   auto resp = reply->mutable_reply();
   const LeaseID lease_id = LeaseID::FromBinary(req.lease_id());
 
-  RAY_CHECK(RayConfig::instance().centralized_actor_scheduling() == true);
-
-  bool canceled = cluster_lease_manager_.CancelLease(lease_id);
+  bool canceled = CancelWorkerLease(lease_id);
   // The lease cancellation failed if we did not have the lease queued, since
   // this means that we may not have received the lease request yet. It is
   // successful if we did have the lease queued, since we have now replied to
@@ -204,7 +208,18 @@ void GcsLeaseManager::HandleGcsCancelWorkerLease(
   ++counts_[CountType::CANCEL_WORKER_LEASE_REQUEST];
 }
 
+bool GcsLeaseManager::CancelWorkerLease(const LeaseID &lease_id) {
+  RAY_CHECK(RayConfig::instance().centralized_actor_scheduling() == true);
+  RAY_CHECK(known_leases_.contains(lease_id) == false);
+
+  return cluster_lease_manager_.CancelLease(lease_id);
+}
+
 void GcsLeaseManager::OnNodeAdd(const NodeID &node_id) {
+  if (node_leases_.contains(node_id)) {
+    return;
+  }
+
   node_leases_[node_id] = absl::flat_hash_map<LeaseID, std::shared_ptr<LeaseInfo>>();
 }
 
@@ -221,8 +236,7 @@ void GcsLeaseManager::OnNodeDead(const NodeID &node_id) {
   }
 
   for (const auto &lease_id : removed) {
-    known_leases_.erase(lease_id);
-    it->second.erase(lease_id);
+    Erase(lease_id, node_id);
   }
   node_leases_.erase(node_id);
   node_lease_versions_.erase(node_id);
@@ -245,8 +259,7 @@ void GcsLeaseManager::OnWorkerDead(const NodeID &node_id, const WorkerID &worker
   }
 
   for (const auto &lease_id : removed) {
-    known_leases_.erase(lease_id);
-    it->second.erase(lease_id);
+    Erase(lease_id, node_id);
   }
 }
 
@@ -291,6 +304,7 @@ void GcsLeaseManager::ReleaseLeases(const NodeID &node_id,
                                     rpc::syncer::LeaseView &message) {
   for (const auto &lease : message.leases()) {
     RayLease ray_lease(lease.lease());
+    RAY_CHECK(ray_lease.GetLeaseSpecification().IsActorCreationTask() == false);
     ReleaseLease(node_id, ray_lease.GetLeaseSpecification().LeaseId(), ray_lease, true);
     ++counts_[CountType::LEASES_RELEASED_BY_RAYLET];
   }
@@ -300,6 +314,7 @@ void GcsLeaseManager::ReserveLeases(const NodeID &node_id,
                                     rpc::syncer::LeaseView &message) {
   for (const auto &lease : message.leases()) {
     RayLease ray_lease(lease.lease());
+    RAY_CHECK(ray_lease.GetLeaseSpecification().IsActorCreationTask() == false);
     ReserveLease(node_id, lease);
   }
 }
@@ -317,10 +332,7 @@ void GcsLeaseManager::ReserveLease(const NodeID &node_id,
 
   auto lease_info = std::make_shared<LeaseInfo>(
       ray_lease, lease_message.address(), lease_message.pid());
-  known_leases_.emplace(lease_id, lease_info);
-
-  auto &leases = node_leases_[node_id];
-  leases.emplace(lease_id, lease_info);
+  Insert(lease_id, lease_info, node_id);
 
   // acquire the resources for the lease
   auto &cluster_resource_manager =
@@ -337,8 +349,6 @@ void GcsLeaseManager::ReserveLease(const NodeID &node_id,
 
 std::optional<syncer::RaySyncMessage> GcsLeaseManager::CreateSyncMessage(
     int64_t after_version, syncer::MessageType message_type) const {
-  RAY_LOG(DEBUG) << "CREATESYNC " << syncer_version_ << " " << after_version << " "
-                 << message_type;
   if (message_type != syncer::MessageType::LEASE_ACK) {
     return std::nullopt;
   }
