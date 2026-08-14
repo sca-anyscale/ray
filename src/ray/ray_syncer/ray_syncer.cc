@@ -135,6 +135,9 @@ void RaySyncer::Connect(std::shared_ptr<RaySyncerBidiReactor> reactor) {
         auto is_new = sync_reactors_.emplace(reactor->GetRemoteNodeID(), reactor).second;
         RAY_CHECK(is_new) << NodeID::FromBinary(reactor->GetRemoteNodeID())
                           << " has already registered.";
+        if (RayConfig::instance().centralized_actor_scheduling()) {
+          return;
+        }
         // Send the view for new connections.
         for (const auto &[_, messages] : node_state_->GetClusterView()) {
           for (const auto &message : messages) {
