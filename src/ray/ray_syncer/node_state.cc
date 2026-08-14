@@ -68,7 +68,8 @@ bool NodeState::ConsumeSyncMessage(std::shared_ptr<const RaySyncMessage> message
   if (current && current->version() >= message->version()) {
     RAY_LOG(INFO) << "Dropping sync message with stale version. latest version: "
                   << current->version()
-                  << ", dropped message version: " << message->version();
+                  << ", dropped message version: " << message->version()
+                  << ", message_type: " << message->message_type();
     return false;
   }
 
@@ -76,7 +77,7 @@ bool NodeState::ConsumeSyncMessage(std::shared_ptr<const RaySyncMessage> message
   auto receiver = receivers_[message->message_type()];
   if (receiver != nullptr) {
     RAY_LOG(DEBUG).WithField(NodeID::FromBinary(message->node_id()))
-        << "Consume message from node";
+        << "Consume message from node with type " << message->message_type();
     receiver->ConsumeSyncMessage(message);
   }
   return true;
