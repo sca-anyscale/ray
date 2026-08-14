@@ -678,7 +678,9 @@ void GcsServer::InitGcsLeaseManager() {
       std::make_unique<GcsLeaseManager>(*cluster_lease_manager_,
                                         *gcs_node_manager_,
                                         io_context_provider_.GetDefaultIOContext(),
-                                        raylet_client_pool_);
+                                        raylet_client_pool_,
+                                        clock_,
+                                        kGCSNodeID);
 
   rpc_server_.RegisterService(std::make_unique<rpc::WorkerLeaseGrpcService>(
       io_context_provider_.GetDefaultIOContext(),
@@ -840,6 +842,9 @@ void GcsServer::InitRaySyncer(const GcsInitData &gcs_init_data) {
 
   if (RayConfig::instance().centralized_actor_scheduling()) {
     ray_syncer_->Register(syncer::MessageType::LEASE_VIEW,
+                          gcs_lease_manager_.get(),
+                          gcs_lease_manager_.get());
+    ray_syncer_->Register(syncer::MessageType::LEASE_ACK,
                           gcs_lease_manager_.get(),
                           gcs_lease_manager_.get());
   }
