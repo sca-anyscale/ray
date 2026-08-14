@@ -667,6 +667,8 @@ int main(int argc, char *argv[]) {
         RayConfig::instance().raylet_report_resources_period_milliseconds();
     node_manager_config.report_leases_period_ms =
         RayConfig::instance().raylet_report_leases_period_milliseconds();
+    node_manager_config.retry_leases_period_ms =
+        RayConfig::instance().raylet_retry_leases_period_milliseconds();
     node_manager_config.record_metrics_period_ms =
         RayConfig::instance().metrics_report_interval_ms() / 2;
     node_manager_config.store_socket_name = store_socket_name;
