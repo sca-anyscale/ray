@@ -18,6 +18,7 @@
 #include <utility>
 
 #include "ray/common/constants.h"
+#include "ray/common/ray_config.h"
 #include "ray/rpc/authentication/authentication_mode.h"
 
 namespace ray::syncer {
@@ -49,6 +50,7 @@ RayServerBidiReactor::RayServerBidiReactor(
           std::move(message_processor),
           max_batch_size,
           max_batch_delay_ms),
+      local_node_id_(local_node_id),
       cleanup_cb_(std::move(cleanup_cb)),
       server_context_(server_context),
       auth_token_(std::move(auth_token)),
@@ -81,6 +83,16 @@ RayServerBidiReactor::RayServerBidiReactor(
 
   // Start pulling from remote
   StartPull();
+}
+
+bool RayServerBidiReactor::ShouldDropOutboundMessage(
+    const RaySyncMessage &message) const {
+  if (!RayConfig::instance().centralized_actor_scheduling()) {
+    return false;
+  }
+  // Only push this node's own messages down to the connected node. The state of
+  // the other nodes is not fanned out in centralized scheduling mode.
+  return message.node_id() != local_node_id_;
 }
 
 void RayServerBidiReactor::DoDisconnect() {
