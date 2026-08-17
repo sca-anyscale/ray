@@ -71,6 +71,10 @@ class RaySyncerBidiReactorBase : public RaySyncerBidiReactor, public T {
       return false;
     }
 
+    if (ShouldDropOutboundMessage(*message)) {
+      return false;
+    }
+
     auto &node_versions = GetNodeComponentVersions(message->node_id());
     if (node_versions[message->message_type()] >= message->version()) {
       RAY_LOG(DEBUG) << "Dropping sync message with stale version. latest version: "
@@ -131,6 +135,16 @@ class RaySyncerBidiReactorBase : public RaySyncerBidiReactor, public T {
   }
 
  protected:
+  /// Hook for subclasses to filter out messages that should not be sent to the
+  /// remote node of this connection. Called from PushToSendingQueue after the
+  /// generic filtering. Defaults to sending everything.
+  ///
+  /// \param message The message about to be queued for sending.
+  /// \return true if the message should be dropped instead of sent.
+  virtual bool ShouldDropOutboundMessage(const RaySyncMessage &message) const {
+    return false;
+  }
+
   /// The io context
   instrumented_io_context &io_context_;
 

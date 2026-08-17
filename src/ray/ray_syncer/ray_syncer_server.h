@@ -55,10 +55,18 @@ class RayServerBidiReactor : public RaySyncerBidiReactorBase<ServerBidiReactor> 
   void OnCancel() override;
   void OnDone() override;
 
+  /// In centralized actor scheduling mode the server only pushes its own node's
+  /// messages down to the connected node, instead of fanning out the state of
+  /// every other node in the cluster.
+  bool ShouldDropOutboundMessage(const RaySyncMessage &message) const override;
+
   void Finish(grpc::Status status) {
     finished_.store(true);
     ServerBidiReactor::Finish(status);
   }
+
+  /// The node id of the node this server runs on.
+  const std::string local_node_id_;
 
   /// Cleanup callback when the call ends.
   const std::function<void(RaySyncerBidiReactor *, bool)> cleanup_cb_;
