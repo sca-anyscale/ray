@@ -86,6 +86,7 @@ class GcsAutoscalerStateManager : public rpc::autoscaler::AutoscalerStateService
                                  rpc::SendReplyCallback send_reply_callback) override;
 
   void UpdateResourceLoadAndUsage(rpc::ResourcesData data);
+  void UpdateResourceLoadAndUsageWrapper(rpc::ResourcesData data);
 
   void RecordMetrics() const { throw std::runtime_error("Unimplemented"); }
 
@@ -94,6 +95,16 @@ class GcsAutoscalerStateManager : public rpc::autoscaler::AutoscalerStateService
   void Initialize(const GcsInitData &gcs_init_data);
 
   void OnNodeAdd(const rpc::GcsNodeInfo &node);
+  void OnNodeAddWrapper(const rpc::GcsNodeInfo &node);
+
+  void OnNodeDeadWrapper(const NodeID &node) {
+    io_context_.dispatch(
+        [this, node]() {
+          RAY_CHECK(thread_checker_.IsOnSameThread());
+          OnNodeDead(node);
+        },
+        "GcsAutoScalerStateManager::OnNodeDead");
+  }
 
   void OnNodeDead(const NodeID &node) { node_resource_info_.erase(node); }
 

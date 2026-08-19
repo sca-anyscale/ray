@@ -687,6 +687,15 @@ GcsPlacementGroupManager::GetBundlesOnNode(const NodeID &node_id) const {
   return gcs_placement_group_scheduler_->GetBundlesOnNode(node_id);
 }
 
+void GcsPlacementGroupManager::OnNodeDeadWrapper(const NodeID &node_id) {
+  io_context_.dispatch(
+      [this, node_id]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnNodeDead(node_id);
+      },
+      "GcsPlacementGroupManager.OnNodeDeadWrapper");
+}
+
 void GcsPlacementGroupManager::OnNodeDead(const NodeID &node_id) {
   RAY_LOG(INFO).WithField(node_id)
       << "Node is dead, rescheduling the placement groups on the dead node.";
@@ -759,6 +768,15 @@ void GcsPlacementGroupManager::OnNodeDead(const NodeID &node_id) {
   }
 }
 
+void GcsPlacementGroupManager::OnNodeAddWrapper(const NodeID &node_id) {
+  io_context_.dispatch(
+      [this, node_id]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnNodeAdd(node_id);
+      },
+      "GcsPlacementGroupManager.OnNodeAddWrapper");
+}
+
 void GcsPlacementGroupManager::OnNodeAdd(const NodeID &node_id) {
   RAY_LOG(DEBUG).WithField(node_id)
       << "A new node has been added, trying to schedule pending placement groups.";
@@ -772,6 +790,16 @@ void GcsPlacementGroupManager::OnNodeAdd(const NodeID &node_id) {
     infeasible_placement_groups_.clear();
   }
   SchedulePendingPlacementGroups();
+}
+
+void GcsPlacementGroupManager::CleanPlacementGroupIfNeededWhenJobDeadWrapper(
+    const JobID &job_id) {
+  io_context_.dispatch(
+      [this, job_id]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        CleanPlacementGroupIfNeededWhenJobDead(job_id);
+      },
+      "GcsPlacementGroupManager.CleanPlacementGroupIfNeededWhenJobDeadWrapper");
 }
 
 void GcsPlacementGroupManager::CleanPlacementGroupIfNeededWhenJobDead(

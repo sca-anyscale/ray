@@ -360,6 +360,7 @@ ray_cc_library(
         "//src/ray/util:clock",
         "//src/ray/util:counter_map",
         "//src/ray/util:exponential_backoff",
+        "//src/ray/util:thread_checker",
         "@com_google_absl//absl/container:flat_hash_map",
     ],
 )

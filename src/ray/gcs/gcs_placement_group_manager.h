@@ -36,6 +36,7 @@
 #include "ray/util/clock.h"
 #include "ray/util/counter_map.h"
 #include "ray/util/exponential_backoff.h"
+#include "ray/util/thread_checker.h"
 #include "src/ray/protobuf/gcs_service.pb.h"
 
 namespace ray {
@@ -153,12 +154,14 @@ class GcsPlacementGroupManager : public rpc::PlacementGroupInfoGcsServiceHandler
   ///
   /// \param node_id The specified node id.
   void OnNodeDead(const NodeID &node_id);
+  void OnNodeDeadWrapper(const NodeID &node_id);
 
   /// Handle a node register. This will try to reschedule all the infeasible
   /// placement groups.
   ///
   /// \param node_id The specified node id.
   void OnNodeAdd(const NodeID &node_id);
+  void OnNodeAddWrapper(const NodeID &node_id);
 
   /// Get bundles on a node.
   ///
@@ -181,6 +184,7 @@ class GcsPlacementGroupManager : public rpc::PlacementGroupInfoGcsServiceHandler
   ///
   /// \param job_id The job id where placement groups that need to be cleaned belong to.
   void CleanPlacementGroupIfNeededWhenJobDead(const JobID &job_id);
+  void CleanPlacementGroupIfNeededWhenJobDeadWrapper(const JobID &job_id);
 
   /// Clean placement group that belongs to the actor id if necessary.
   ///
@@ -377,6 +381,7 @@ class GcsPlacementGroupManager : public rpc::PlacementGroupInfoGcsServiceHandler
       &placement_group_scheduling_latency_in_ms_histogram_;
   ray::observability::MetricInterface &placement_group_count_gauge_;
   ClockInterface &clock_;
+  ThreadChecker thread_checker_;
 
   FRIEND_TEST(GcsPlacementGroupManagerMockTest, PendingQueuePriorityReschedule);
   FRIEND_TEST(GcsPlacementGroupManagerMockTest, PendingQueuePriorityFailed);

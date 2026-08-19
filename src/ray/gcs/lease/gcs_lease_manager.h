@@ -31,6 +31,7 @@
 #include "ray/raylet/scheduling/cluster_lease_manager.h"
 #include "ray/util/clock.h"
 #include "ray/util/counter_map.h"
+#include "ray/util/thread_checker.h"
 #include "src/ray/protobuf/gcs_service.pb.h"
 
 namespace ray {
@@ -90,17 +91,20 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   ///
   /// \param node_id The specified node id.
   void OnNodeAdd(const NodeID &node_id);
+  void OnNodeAddWrapper(const NodeID &node_id);
 
   /// Handle a node death. This will remove the lease information for that node.
   ///
   /// \param node_id The specified node id.
   void OnNodeDead(const NodeID &node_id);
+  void OnNodeDeadWrapper(const NodeID &node_id);
 
   /// Handle a worker failure. This will remove the lease information for that worker.
   ///
   /// \param node_id ID of the node where the dead worker was located.
   /// \param worker_id ID of the dead worker.
   void OnWorkerDead(const NodeID &node_id, const WorkerID &worker_id);
+  void OnWorkerDeadWrapper(const NodeID &node_id, const WorkerID &worker_id);
 
   /// Consume syncer messages (LEASE_VIEW)
   ///
@@ -212,8 +216,12 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   // our local node ID -- used for creating syncer messages
   NodeID local_node_id_;
 
-  absl::flat_hash_map<NodeID, int64_t> node_lease_versions_;
+  mutable absl::Mutex lease_versions_mutex_;
+  absl::flat_hash_map<NodeID, int64_t> node_lease_versions_
+      ABSL_GUARDED_BY(lease_versions_mutex_);
   int64_t syncer_version_ = clock_.SteadyNowMillis();
+
+  ThreadChecker thread_checker_;
 
   // Debug info.
   enum CountType {

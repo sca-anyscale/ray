@@ -968,13 +968,35 @@ void GcsActorManager::PollOwnerForActorRefDeleted(
           // Only destroy the actor if its owner is still alive. The actor may
           // have already been destroyed if the owner died.
           int64_t timeout_ms = RayConfig::instance().actor_graceful_shutdown_timeout_ms();
-          DestroyActor(actor_id,
-                       GenActorRefDeletedCause(GetActorTableData(actor_id)),
-                       /*force_kill=*/false,
-                       nullptr,
-                       timeout_ms);
+          DestroyActorWrapper(actor_id,
+                              GenActorRefDeletedCause(GetActorTableData(actor_id)),
+                              /*force_kill=*/false,
+                              nullptr,
+                              timeout_ms);
         }
       });
+}
+
+void GcsActorManager::DestroyActorWrapper(const ActorID &actor_id,
+                                          const rpc::ActorDeathCause &death_cause,
+                                          bool force_kill,
+                                          std::function<void()> done_callback,
+                                          int64_t graceful_shutdown_timeout_ms) {
+  io_context_.dispatch(
+      [this,
+       actor_id,
+       death_cause,
+       force_kill,
+       done_callback,
+       graceful_shutdown_timeout_ms]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        DestroyActor(actor_id,
+                     death_cause,
+                     force_kill,
+                     done_callback,
+                     graceful_shutdown_timeout_ms);
+      },
+      "GcsActorManager::DestroyActorWrapper");
 }
 
 void GcsActorManager::DestroyActor(const ActorID &actor_id,
@@ -1189,6 +1211,32 @@ void GcsActorManager::OnWorkerDead(const ray::NodeID &node_id,
                "Worker exits unexpectedly.");
 }
 
+void GcsActorManager::OnWorkerDeadWrapper(
+    const ray::NodeID &node_id,
+    const ray::WorkerID &worker_id,
+    const std::string &worker_ip,
+    const rpc::WorkerExitType disconnect_type,
+    const std::string &disconnect_detail,
+    const rpc::RayException *creation_task_exception) {
+  io_context_.dispatch(
+      [this,
+       node_id,
+       worker_id,
+       worker_ip,
+       disconnect_type,
+       disconnect_detail,
+       creation_task_exception]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnWorkerDead(node_id,
+                     worker_id,
+                     worker_ip,
+                     disconnect_type,
+                     disconnect_detail,
+                     creation_task_exception);
+      },
+      "GcsActorManager::OnWorkerDeadWrapper");
+}
+
 void GcsActorManager::OnWorkerDead(const ray::NodeID &node_id,
                                    const ray::WorkerID &worker_id,
                                    const std::string &worker_ip,
@@ -1282,6 +1330,16 @@ void GcsActorManager::OnWorkerDead(const ray::NodeID &node_id,
   // Otherwise, try to reconstruct the actor that was already created or in the creation
   // process.
   RestartActor(actor_id, /*need_reschedule=*/need_reconstruct, death_cause);
+}
+
+void GcsActorManager::OnNodeDeadWrapper(std::shared_ptr<const rpc::GcsNodeInfo> node,
+                                        const std::string &node_ip_address) {
+  io_context_.dispatch(
+      [this, node, node_ip_address]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnNodeDead(node, node_ip_address);
+      },
+      "GcsActorManager::OnNodeDeadWrapper");
 }
 
 void GcsActorManager::OnNodeDead(std::shared_ptr<const rpc::GcsNodeInfo> node,
@@ -1596,6 +1654,18 @@ void GcsActorManager::RestartActor(
   }
 }
 
+void GcsActorManager::OnActorSchedulingFailedWrapper(
+    std::shared_ptr<GcsActor> actor,
+    rpc::RequestWorkerLeaseReply::SchedulingFailureType failure_type,
+    const std::string &scheduling_failure_message) {
+  io_context_.dispatch(
+      [this, actor, failure_type, scheduling_failure_message]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnActorSchedulingFailed(actor, failure_type, scheduling_failure_message);
+      },
+      "GcsActorManager::OnActorSchedulingFailedWrapper");
+}
+
 void GcsActorManager::OnActorSchedulingFailed(
     std::shared_ptr<GcsActor> actor,
     rpc::RequestWorkerLeaseReply::SchedulingFailureType failure_type,
@@ -1715,6 +1785,15 @@ void GcsActorManager::OnActorCreationSuccess(const std::shared_ptr<GcsActor> &ac
          RunAndClearActorCreationCallbacks(actor, reply, Status::OK());
        },
        io_context_});
+}
+
+void GcsActorManager::SchedulePendingActorsWrapper() {
+  io_context_.dispatch(
+      [this]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        SchedulePendingActors();
+      },
+      "GcsActorManager::SchedulePendingActorsWrapper");
 }
 
 void GcsActorManager::SchedulePendingActors() {

@@ -215,12 +215,30 @@ bool GcsLeaseManager::CancelWorkerLease(const LeaseID &lease_id) {
   return cluster_lease_manager_.CancelLease(lease_id);
 }
 
+void GcsLeaseManager::OnNodeAddWrapper(const NodeID &node_id) {
+  io_context_.dispatch(
+      [this, node_id]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnNodeAdd(node_id);
+      },
+      "GcsLeaseManager::OnNodeAddWrapper");
+}
+
 void GcsLeaseManager::OnNodeAdd(const NodeID &node_id) {
   if (node_leases_.contains(node_id)) {
     return;
   }
 
   node_leases_[node_id] = absl::flat_hash_map<LeaseID, std::shared_ptr<LeaseInfo>>();
+}
+
+void GcsLeaseManager::OnNodeDeadWrapper(const NodeID &node_id) {
+  io_context_.dispatch(
+      [this, node_id]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnNodeDead(node_id);
+      },
+      "GcsLeaseManager::OnNodeDeadWrapper");
 }
 
 void GcsLeaseManager::OnNodeDead(const NodeID &node_id) {
@@ -239,7 +257,18 @@ void GcsLeaseManager::OnNodeDead(const NodeID &node_id) {
     Erase(lease_id, node_id);
   }
   node_leases_.erase(node_id);
+  absl::MutexLock lock(&lease_versions_mutex_);
   node_lease_versions_.erase(node_id);
+}
+
+void GcsLeaseManager::OnWorkerDeadWrapper(const NodeID &node_id,
+                                          const WorkerID &worker_id) {
+  io_context_.dispatch(
+      [this, node_id, worker_id]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnWorkerDead(node_id, worker_id);
+      },
+      "GcsLeaseManager::OnWorkerDeadWrapper");
 }
 
 void GcsLeaseManager::OnWorkerDead(const NodeID &node_id, const WorkerID &worker_id) {
@@ -273,7 +302,6 @@ void GcsLeaseManager::ConsumeSyncMessage(
           const NodeID node_id = NodeID::FromBinary(message->node_id());
           RAY_LOG(DEBUG).WithField(node_id)
               << "RECEIVE MESSAGE " << message->message_type();
-          node_lease_versions_[node_id] = message->version();
 
           rpc::syncer::LeaseView lease_view_sync_message;
           lease_view_sync_message.ParseFromString(message->sync_message());
@@ -293,6 +321,8 @@ void GcsLeaseManager::ConsumeSyncMessage(
           }
           // we need a value that increases after a restart, rather than being reset
           syncer_version_ = clock_.SteadyNowMillis();
+          absl::MutexLock lock(&lease_versions_mutex_);
+          node_lease_versions_[node_id] = message->version();
         } else {
           RAY_LOG(FATAL) << "Unsupported message type: " << message->message_type();
         }
@@ -365,6 +395,7 @@ std::optional<syncer::RaySyncMessage> GcsLeaseManager::CreateSyncMessage(
   rpc::syncer::LeaseAck lease_ack_msg;
   auto version_map = lease_ack_msg.mutable_node_versions();
 
+  absl::MutexLock lock(&lease_versions_mutex_);
   for (const auto &[node_id, version] : node_lease_versions_) {
     version_map->insert({node_id.Hex(), version});
   }

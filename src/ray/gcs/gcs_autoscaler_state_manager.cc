@@ -292,6 +292,15 @@ void GcsAutoscalerStateManager::GetClusterResourceConstraints(
   }
 }
 
+void GcsAutoscalerStateManager::OnNodeAddWrapper(const rpc::GcsNodeInfo &node) {
+  io_context_.dispatch(
+      [this, node]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        OnNodeAdd(node);
+      },
+      "GcsAutoScalerStateManager::OnNodeAddWrapper");
+}
+
 void GcsAutoscalerStateManager::OnNodeAdd(const rpc::GcsNodeInfo &node) {
   RAY_CHECK(thread_checker_.IsOnSameThread());
   NodeID node_id = NodeID::FromBinary(node.node_id());
@@ -309,6 +318,16 @@ void GcsAutoscalerStateManager::OnNodeAdd(const rpc::GcsNodeInfo &node) {
   (*node_info->second.second.mutable_resources_available()) = node.resources_total();
   // Populate node labels.
   (*node_info->second.second.mutable_labels()) = node.labels();
+}
+
+void GcsAutoscalerStateManager::UpdateResourceLoadAndUsageWrapper(
+    rpc::ResourcesData data) {
+  io_context_.dispatch(
+      [this, data]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        UpdateResourceLoadAndUsage(data);
+      },
+      "GcsAutoScalerStateManager::UpdateResourceLoadAndUsageWrapper");
 }
 
 void GcsAutoscalerStateManager::UpdateResourceLoadAndUsage(rpc::ResourcesData data) {
@@ -338,12 +357,16 @@ GcsAutoscalerStateManager::GetAggregatedResourceLoad() const {
 };
 
 void GcsAutoscalerStateManager::Initialize(const GcsInitData &gcs_init_data) {
-  RAY_CHECK(thread_checker_.IsOnSameThread());
-  for (const auto &entry : gcs_init_data.Nodes()) {
-    if (entry.second.state() == rpc::GcsNodeInfo::ALIVE) {
-      OnNodeAdd(entry.second);
-    }
-  }
+  io_context_.dispatch(
+      [this, gcs_init_data]() {
+        RAY_CHECK(thread_checker_.IsOnSameThread());
+        for (const auto &entry : gcs_init_data.Nodes()) {
+          if (entry.second.state() == rpc::GcsNodeInfo::ALIVE) {
+            OnNodeAdd(entry.second);
+          }
+        }
+      },
+      "GcsAutoScalerStateManager::OnNodeAddWrapper");
 }
 
 void GcsAutoscalerStateManager::GetPendingResourceRequests(

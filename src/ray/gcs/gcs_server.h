@@ -300,6 +300,9 @@ class GcsServer {
   std::shared_ptr<GcsHealthCheckManager> gcs_healthcheck_manager_;
   std::unique_ptr<GcsPlacementGroupManager> gcs_placement_group_manager_;
   std::shared_ptr<GcsActorManager> gcs_actor_manager_;
+  rpc::ClientCallManager gcs_scheduler_client_call_manager_;
+  rpc::RayletClientPool gcs_scheduler_raylet_client_pool_;
+  rpc::CoreWorkerClientPool gcs_scheduler_worker_client_pool_;
   /// gcs_placement_group_scheduler_ depends on raylet_client_pool_.
   std::unique_ptr<GcsPlacementGroupScheduler> gcs_placement_group_scheduler_;
   std::unique_ptr<GCSFunctionManager> function_manager_;
@@ -319,6 +322,7 @@ class GcsServer {
   const NodeID gcs_node_id_;
 
   std::unique_ptr<UsageStatsClient> usage_stats_client_;
+  std::unique_ptr<UsageStatsClient> scheduler_usage_stats_client_;
   std::unique_ptr<GcsWorkerManager> gcs_worker_manager_;
   std::unique_ptr<RuntimeEnvHandler> runtime_env_handler_;
   /// GCS PubSub handler (control-plane).

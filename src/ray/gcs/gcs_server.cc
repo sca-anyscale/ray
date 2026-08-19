@@ -146,6 +146,63 @@ GcsServer::GcsServer(const ray::gcs::GcsServerConfig &config,
             this->resource_load_pull_client_call_manager_,
             /*raylet_unavailable_timeout_callback=*/[]() {});
       }),
+      gcs_scheduler_client_call_manager_(
+          io_context_provider_.GetIOContext<GcsActorManager>(),
+          /*record_stats=*/true,
+          config.node_ip_address,
+          ClusterID::Nil(),
+          /*num_threads=*/1),
+      gcs_scheduler_raylet_client_pool_([this](const rpc::Address &addr) {
+        // GetResourceLoad is not retryable, so the unavailable-timeout callback
+        // can never fire; the puller's snapshot diff evicts instead.
+        return std::make_shared<ray::rpc::RayletClient>(
+            addr,
+            this->gcs_scheduler_client_call_manager_,
+            /*raylet_unavailable_timeout_callback=*/
+            [this, addr]() {
+              const NodeID node_id = NodeID::FromBinary(addr.node_id());
+              auto alive_node = this->gcs_node_manager_->GetAliveNode(node_id);
+              if (!alive_node.has_value()) {
+                this->gcs_scheduler_raylet_client_pool_.Disconnect(node_id);
+              }
+            });
+      }),
+      gcs_scheduler_worker_client_pool_([this](const rpc::Address &addr) {
+        return std::make_shared<rpc::CoreWorkerClient>(
+            addr,
+            this->gcs_scheduler_client_call_manager_,
+            /*core_worker_unavailable_timeout_callback*/ [this, addr]() {
+              const NodeID node_id = NodeID::FromBinary(addr.node_id());
+              const WorkerID worker_id = WorkerID::FromBinary(addr.worker_id());
+              auto alive_node = this->gcs_node_manager_->GetAliveNode(node_id);
+              if (!alive_node.has_value()) {
+                this->worker_client_pool_.Disconnect(worker_id);
+                return;
+              }
+              auto &node_info = alive_node.value();
+              auto remote_address = rpc::RayletClientPool::GenerateRayletAddress(
+                  node_id,
+                  node_info->node_manager_address(),
+                  node_info->node_manager_port());
+              auto raylet_client =
+                  this->raylet_client_pool_.GetOrConnectByAddress(remote_address);
+              // Worker could still be dead even if node is alive.
+              raylet_client->IsLocalWorkerDead(
+                  worker_id,
+                  [this, worker_id, node_id](const Status &status, const auto &reply) {
+                    if (!status.ok()) {
+                      RAY_LOG(INFO).WithField(worker_id).WithField(node_id)
+                          << "Failed to check if worker is dead on request to raylet";
+                      return;
+                    }
+                    if (reply.is_dead()) {
+                      RAY_LOG(INFO).WithField(worker_id)
+                          << "Disconnect core worker client since it is dead";
+                      this->worker_client_pool_.Disconnect(worker_id);
+                    }
+                  });
+            });
+      }),
       event_aggregator_client_call_manager_(
           io_context_provider_.GetIOContext<observability::RayEventRecorder>(),
           /*record_stats=*/true,
@@ -526,7 +583,7 @@ void GcsServer::InitGcsResourceLoadPuller() {
   RAY_CHECK(gcs_node_manager_ && gcs_resource_manager_ && gcs_autoscaler_state_manager_);
   resource_load_puller_ = std::make_unique<GcsResourceLoadPuller>(
       io_context_provider_.GetIOContext<GcsResourceLoadPuller>(),
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsActorManager>(),
       resource_load_pull_raylet_client_pool_,
       /*apply_on_main=*/
       [this](rpc::ResourcesData resources) {
@@ -539,7 +596,8 @@ void GcsServer::InitGcsResourceLoadPuller() {
         // Once autoscaler is completely moved to the new mode of consistent
         // per-node reporting, remove this if it is not needed anymore.
         gcs_resource_manager_->UpdateResourceLoads(resources);
-        gcs_autoscaler_state_manager_->UpdateResourceLoadAndUsage(std::move(resources));
+        gcs_autoscaler_state_manager_->UpdateResourceLoadAndUsageWrapper(
+            std::move(resources));
       });
   resource_load_pull_periodical_runner_->RunFnPeriodically(
       [this] {
@@ -674,13 +732,13 @@ void GcsServer::InitGcsJobManager(
 void GcsServer::InitGcsLeaseManager() {
   RAY_CHECK(gcs_publisher_ && observability_publisher_ && cluster_lease_manager_);
 
-  gcs_lease_manager_ =
-      std::make_unique<GcsLeaseManager>(*cluster_lease_manager_,
-                                        *gcs_node_manager_,
-                                        io_context_provider_.GetDefaultIOContext(),
-                                        raylet_client_pool_,
-                                        clock_,
-                                        kGCSNodeID);
+  gcs_lease_manager_ = std::make_unique<GcsLeaseManager>(
+      *cluster_lease_manager_,
+      *gcs_node_manager_,
+      io_context_provider_.GetIOContext<GcsActorManager>(),
+      gcs_scheduler_raylet_client_pool_,
+      clock_,
+      kGCSNodeID);
 
   rpc_server_.RegisterService(std::make_unique<rpc::WorkerLeaseGrpcService>(
       io_context_provider_.GetDefaultIOContext(),
@@ -711,29 +769,29 @@ void GcsServer::InitGcsActorManager(
     gcs_actor_manager_->OnActorCreationSuccess(actor, reply);
   };
 
-  scheduler =
-      std::make_unique<GcsActorScheduler>(io_context_provider_.GetDefaultIOContext(),
-                                          gcs_table_storage_->ActorTable(),
-                                          *gcs_node_manager_,
-                                          *cluster_lease_manager_,
-                                          schedule_failure_handler,
-                                          schedule_success_handler,
-                                          raylet_client_pool_,
-                                          worker_client_pool_,
-                                          metrics_.scheduler_placement_time_ms_histogram,
-                                          clock_);
+  scheduler = std::make_unique<GcsActorScheduler>(
+      io_context_provider_.GetIOContext<GcsActorManager>(),
+      gcs_table_storage_->ActorTable(),
+      *gcs_node_manager_,
+      *cluster_lease_manager_,
+      schedule_failure_handler,
+      schedule_success_handler,
+      gcs_scheduler_raylet_client_pool_,
+      gcs_scheduler_worker_client_pool_,
+      metrics_.scheduler_placement_time_ms_histogram,
+      clock_);
   gcs_actor_manager_ = std::make_shared<GcsActorManager>(
       std::move(scheduler),
       gcs_table_storage_.get(),
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsActorManager>(),
       gcs_publisher_.get(),
       *runtime_env_manager_,
       *function_manager_,
       [this](const ActorID &actor_id) {
         gcs_placement_group_manager_->CleanPlacementGroupIfNeededWhenActorDead(actor_id);
       },
-      raylet_client_pool_,
-      worker_client_pool_,
+      gcs_scheduler_raylet_client_pool_,
+      gcs_scheduler_worker_client_pool_,
       *ray_event_recorder_,
       config_.session_name,
       actor_by_state_gauge,
@@ -743,7 +801,7 @@ void GcsServer::InitGcsActorManager(
 
   gcs_actor_manager_->Initialize(gcs_init_data);
   rpc_server_.RegisterService(std::make_unique<rpc::ActorInfoGrpcService>(
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsActorManager>(),
       *gcs_actor_manager_,
       RayConfig::instance().gcs_max_active_rpcs_per_handler()));
 }
@@ -757,14 +815,14 @@ void GcsServer::InitGcsPlacementGroupManager(
     ray::observability::MetricInterface &placement_group_count_gauge) {
   RAY_CHECK(gcs_table_storage_ && gcs_node_manager_);
   gcs_placement_group_scheduler_ = std::make_unique<GcsPlacementGroupScheduler>(
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsActorManager>(),
       *gcs_table_storage_,
       *gcs_node_manager_,
       *cluster_resource_scheduler_,
-      raylet_client_pool_);
+      gcs_scheduler_raylet_client_pool_);
 
   gcs_placement_group_manager_ = std::make_unique<GcsPlacementGroupManager>(
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsActorManager>(),
       gcs_placement_group_scheduler_.get(),
       gcs_table_storage_.get(),
       *gcs_resource_manager_,
@@ -779,7 +837,7 @@ void GcsServer::InitGcsPlacementGroupManager(
 
   gcs_placement_group_manager_->Initialize(gcs_init_data);
   rpc_server_.RegisterService(std::make_unique<rpc::PlacementGroupInfoGrpcService>(
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsActorManager>(),
       *gcs_placement_group_manager_,
       RayConfig::instance().gcs_max_active_rpcs_per_handler()));
 }
@@ -863,9 +921,13 @@ void GcsServer::InitUsageStatsClient() {
       kv_manager_->GetInstance(), io_context_provider_.GetDefaultIOContext());
 
   gcs_worker_manager_->SetUsageStatsClient(usage_stats_client_.get());
-  gcs_actor_manager_->SetUsageStatsClient(usage_stats_client_.get());
-  gcs_placement_group_manager_->SetUsageStatsClient(usage_stats_client_.get());
   gcs_task_manager_->SetUsageStatsClient(usage_stats_client_.get());
+
+  scheduler_usage_stats_client_ = std::make_unique<UsageStatsClient>(
+      kv_manager_->GetInstance(), io_context_provider_.GetIOContext<GcsActorManager>());
+
+  gcs_actor_manager_->SetUsageStatsClient(scheduler_usage_stats_client_.get());
+  gcs_placement_group_manager_->SetUsageStatsClient(scheduler_usage_stats_client_.get());
 }
 
 void GcsServer::InitKVManager() {
@@ -1048,16 +1110,16 @@ void GcsServer::InitGcsAutoscalerStateManager(const GcsInitData &gcs_init_data) 
       *gcs_node_manager_,
       *gcs_actor_manager_,
       *gcs_placement_group_manager_,
-      raylet_client_pool_,
+      gcs_scheduler_raylet_client_pool_,
       kv_manager_->GetInstance(),
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsActorManager>(),
       gcs_publisher_.get(),
       observability_publisher_.get(),
       clock_);
   gcs_autoscaler_state_manager_->Initialize(gcs_init_data);
   rpc_server_.RegisterService(
       std::make_unique<rpc::autoscaler::AutoscalerStateGrpcService>(
-          io_context_provider_.GetDefaultIOContext(),
+          io_context_provider_.GetIOContext<GcsActorManager>(),
           *gcs_autoscaler_state_manager_,
           RayConfig::instance().gcs_max_active_rpcs_per_handler()));
 }
@@ -1092,10 +1154,10 @@ void GcsServer::InstallEventListeners() {
         // placement groups and the pending actors.
         auto node_id = NodeID::FromBinary(node->node_id());
         gcs_resource_manager_->OnNodeAdd(*node);
-        gcs_placement_group_manager_->OnNodeAdd(node_id);
-        gcs_actor_manager_->SchedulePendingActors();
-        gcs_autoscaler_state_manager_->OnNodeAdd(*node);
-        gcs_lease_manager_->OnNodeAdd(node_id);
+        gcs_placement_group_manager_->OnNodeAddWrapper(node_id);
+        gcs_actor_manager_->SchedulePendingActorsWrapper();
+        gcs_autoscaler_state_manager_->OnNodeAddWrapper(*node);
+        gcs_lease_manager_->OnNodeAddWrapper(node_id);
 
         // Initialize the metrics exporter when the head node registers,
         // but only if we haven't already initialized it (i.e., when using
@@ -1130,16 +1192,16 @@ void GcsServer::InstallEventListeners() {
         // All of the related placement groups and actors should be reconstructed when a
         // node is removed from the GCS.
         gcs_resource_manager_->OnNodeDead(node_id);
-        gcs_placement_group_manager_->OnNodeDead(node_id);
-        gcs_actor_manager_->OnNodeDead(node, node_ip_address);
+        gcs_placement_group_manager_->OnNodeDeadWrapper(node_id);
+        gcs_actor_manager_->OnNodeDeadWrapper(node, node_ip_address);
         gcs_job_manager_->OnNodeDead(node_id);
-        gcs_lease_manager_->OnNodeDead(node_id);
+        gcs_lease_manager_->OnNodeDeadWrapper(node_id);
         raylet_client_pool_.Disconnect(node_id);
         worker_client_pool_.Disconnect(node_id);
         gcs_healthcheck_manager_->RemoveNode(node_id);
         pubsub_handler_->AsyncRemoveSubscriberFrom(node_id.Binary());
         observability_pubsub_handler_->AsyncRemoveSubscriberFrom(node_id.Binary());
-        gcs_autoscaler_state_manager_->OnNodeDead(node_id);
+        gcs_autoscaler_state_manager_->OnNodeDeadWrapper(node_id);
       },
       io_context_provider_.GetDefaultIOContext());
   gcs_node_manager_->AddNodeDrainingListener(
@@ -1160,13 +1222,13 @@ void GcsServer::InstallEventListeners() {
         if (worker_failure_data->has_creation_task_exception()) {
           creation_task_exception = &worker_failure_data->creation_task_exception();
         }
-        gcs_actor_manager_->OnWorkerDead(node_id,
-                                         worker_id,
-                                         worker_ip,
-                                         worker_failure_data->exit_type(),
-                                         worker_failure_data->exit_detail(),
-                                         creation_task_exception);
-        gcs_lease_manager_->OnWorkerDead(node_id, worker_id);
+        gcs_actor_manager_->OnWorkerDeadWrapper(node_id,
+                                                worker_id,
+                                                worker_ip,
+                                                worker_failure_data->exit_type(),
+                                                worker_failure_data->exit_detail(),
+                                                creation_task_exception);
+        gcs_lease_manager_->OnWorkerDeadWrapper(node_id, worker_id);
         pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         observability_pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         gcs_task_manager_->OnWorkerDead(worker_id, worker_failure_data);
@@ -1176,7 +1238,7 @@ void GcsServer::InstallEventListeners() {
   gcs_job_manager_->AddJobFinishedListener([this](const rpc::JobTableData &job_data) {
     const auto job_id = JobID::FromBinary(job_data.job_id());
     gcs_task_manager_->OnJobFinished(job_id, job_data.end_time());
-    gcs_placement_group_manager_->CleanPlacementGroupIfNeededWhenJobDead(job_id);
+    gcs_placement_group_manager_->CleanPlacementGroupIfNeededWhenJobDeadWrapper(job_id);
   });
 }
 
@@ -1188,17 +1250,19 @@ void GcsServer::RecordMetrics() const {
 }
 
 void GcsServer::PrintDebugState() const {
-  RAY_LOG(INFO) << "Gcs Debug state:\n\n"
-                << gcs_node_manager_->DebugString() << "\n\n"
-                << gcs_actor_manager_->DebugString() << "\n\n"
-                << gcs_resource_manager_->DebugString() << "\n\n"
-                << gcs_placement_group_manager_->DebugString() << "\n\n"
-                << gcs_publisher_->DebugString() << "\n\n"
-                << observability_publisher_->DebugString() << "\n\n"
-                << runtime_env_manager_->DebugString() << "\n\n"
-                << gcs_task_manager_->DebugString() << "\n\n"
-                << gcs_autoscaler_state_manager_->DebugString() << "\n\n"
-                << gcs_lease_manager_->DebugString() << "\n\n";
+  RAY_LOG(INFO)
+      << "Gcs Debug state:\n\n"
+      << gcs_node_manager_->DebugString() << "\n\n"
+      << gcs_actor_manager_->DebugString() << "\n\n"
+      << gcs_resource_manager_->DebugString() << "\n\n"
+      << gcs_placement_group_manager_->DebugString() << "\n\n"
+      << gcs_publisher_->DebugString() << "\n\n"
+      << observability_publisher_->DebugString() << "\n\n"
+      << runtime_env_manager_->DebugString() << "\n\n"
+      << gcs_task_manager_->DebugString()
+      << "\n\n"
+      //                << gcs_autoscaler_state_manager_->DebugString() << "\n\n"
+      << gcs_lease_manager_->DebugString() << "\n\n";
 
   /// If periodic asio stats print is enabled, it will print it.
   const auto event_stats_print_interval_ms =

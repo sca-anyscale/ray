@@ -35,6 +35,7 @@
 #include "ray/raylet/scheduling/cluster_lease_manager.h"
 #include "ray/raylet_rpc_client/raylet_client_pool.h"
 #include "ray/util/clock.h"
+#include "ray/util/thread_checker.h"
 #include "src/ray/protobuf/common.pb.h"
 #include "src/ray/protobuf/core_worker.pb.h"
 #include "src/ray/protobuf/gcs.pb.h"
@@ -195,6 +196,10 @@ class GcsActorScheduler : public GcsActorSchedulerInterface {
   std::string DebugString() const override;
 
  protected:
+  // Make sure our unprotected maps are accessed from the same thread.
+  // Currently protects actor_to_register_callbacks_.
+  ThreadChecker thread_checker_;
+
   /// The GcsLeasedWorker is kind of abstraction of remote leased worker inside raylet. It
   /// contains the address of remote leased worker as well as the leased resources and the
   /// ID of the actor associated with this worker. Through this class, we can easily get

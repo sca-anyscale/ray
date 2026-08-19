@@ -66,6 +66,7 @@ void GcsActorScheduler::Schedule(std::shared_ptr<GcsActor> actor) {
 void GcsActorScheduler::ScheduleByRaylet(std::shared_ptr<GcsActor> actor) {
   // Select a node to where the actor is forwarded.
   auto node_id = SelectForwardingNode(actor);
+  RAY_CHECK(thread_checker_.IsOnSameThread());
 
   auto node = gcs_node_manager_.GetAliveNode(node_id);
   if (!node.has_value()) {
@@ -93,6 +94,7 @@ void GcsActorScheduler::ScheduleByRaylet(std::shared_ptr<GcsActor> actor) {
 
 NodeID GcsActorScheduler::SelectForwardingNode(std::shared_ptr<GcsActor> actor) {
   // Select a node to lease worker for the actor.
+  RAY_CHECK(thread_checker_.IsOnSameThread());
   std::shared_ptr<const rpc::GcsNodeInfo> node;
 
   const auto &lease_spec = actor->GetLeaseSpecification();
@@ -142,6 +144,7 @@ NodeID GcsActorScheduler::SelectForwardingNode(std::shared_ptr<GcsActor> actor) 
 }
 
 void GcsActorScheduler::ScheduleByGcs(std::shared_ptr<GcsActor> actor) {
+  RAY_CHECK(thread_checker_.IsOnSameThread());
   auto reply = std::make_shared<rpc::RequestWorkerLeaseReply>();
   auto send_reply_callback = [this, actor, reply](Status status,
                                                   std::function<void()> success,
@@ -221,6 +224,7 @@ void GcsActorScheduler::Reschedule(std::shared_ptr<GcsActor> actor) {
 std::vector<ActorID> GcsActorScheduler::CancelOnNode(const NodeID &node_id) {
   // Remove all the actors from the map associated with this node, and return them as they
   // will be reconstructed later.
+  RAY_CHECK(thread_checker_.IsOnSameThread());
   std::vector<ActorID> actor_ids;
 
   // Remove all actors in phase of leasing.
@@ -251,6 +255,7 @@ void GcsActorScheduler::CancelOnLeasing(const NodeID &node_id,
                                         const LeaseID &lease_id) {
   // NOTE: This method will cancel the outstanding lease request and remove leasing
   // information from the internal state.
+  RAY_CHECK(thread_checker_.IsOnSameThread());
   RAY_LOG(DEBUG) << "Canceling worker lease request " << lease_id;
   auto node_it = node_to_actors_when_leasing_.find(node_id);
   RAY_CHECK(node_it != node_to_actors_when_leasing_.end());
@@ -381,6 +386,7 @@ void GcsActorScheduler::RetryLeasingWorkerFromNode(
 
 void GcsActorScheduler::DoRetryLeasingWorkerFromNode(
     std::shared_ptr<GcsActor> actor, std::shared_ptr<const rpc::GcsNodeInfo> node) {
+  RAY_CHECK(thread_checker_.IsOnSameThread());
   auto iter = node_to_actors_when_leasing_.find(actor->GetNodeID());
   if (iter != node_to_actors_when_leasing_.end()) {
     // If the node is still available, the actor must be still in the
@@ -397,6 +403,7 @@ void GcsActorScheduler::HandleWorkerLeaseGrantedReply(
     std::shared_ptr<GcsActor> actor,
     const ray::rpc::RequestWorkerLeaseReply &reply,
     std::shared_ptr<const rpc::GcsNodeInfo> node) {
+  RAY_CHECK(thread_checker_.IsOnSameThread());
   const auto &retry_at_raylet_address = reply.retry_at_raylet_address();
   const auto &worker_address = reply.worker_address();
   if (worker_address.node_id().empty()) {
@@ -629,6 +636,7 @@ void GcsActorScheduler::HandleWorkerLeaseReply(
   // If the actor is not in the leasing map, it means that the actor has been
   // cancelled as the node is dead, just do nothing in this case because the
   // gcs_actor_manager will reconstruct it again.
+  RAY_CHECK(thread_checker_.IsOnSameThread());
   auto node_id = NodeID::FromBinary(node->node_id());
   auto iter = node_to_actors_when_leasing_.find(node_id);
   if (iter != node_to_actors_when_leasing_.end()) {

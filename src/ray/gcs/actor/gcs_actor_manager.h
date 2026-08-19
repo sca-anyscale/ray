@@ -164,6 +164,7 @@ class GcsActorManager : public rpc::ActorInfoGcsServiceHandler,
   /// This method should be called when new nodes are registered or resources
   /// change.
   void SchedulePendingActors();
+  void SchedulePendingActorsWrapper();
 
   /// Handle a node death. This will restart all actors associated with the
   /// specified node id, including actors which are scheduled or have been
@@ -175,6 +176,8 @@ class GcsActorManager : public rpc::ActorInfoGcsServiceHandler,
   /// \param node_ip_address The ip address of the dead node.
   void OnNodeDead(std::shared_ptr<const rpc::GcsNodeInfo> node,
                   const std::string &node_ip_address);
+  void OnNodeDeadWrapper(std::shared_ptr<const rpc::GcsNodeInfo> node,
+                         const std::string &node_ip_address);
 
   /// Handle a worker failure. This will restart the associated actor, if any,
   /// which may be pending or already created. If the worker owned other
@@ -192,6 +195,20 @@ class GcsActorManager : public rpc::ActorInfoGcsServiceHandler,
                     const std::string &disconnect_detail,
                     const rpc::RayException *creation_task_exception = nullptr);
 
+  /// Report a worker failure to the actor manager IO context.
+  ///
+  /// \param node_id ID of the node where the dead worker was located.
+  /// \param worker_id ID of the dead worker.
+  /// \param exit_type exit reason of the dead worker.
+  /// \param creation_task_exception if this arg is set, this worker is died because of an
+  /// exception thrown in actor's creation task.
+  void OnWorkerDeadWrapper(const NodeID &node_id,
+                           const WorkerID &worker_id,
+                           const std::string &worker_ip,
+                           const rpc::WorkerExitType disconnect_type,
+                           const std::string &disconnect_detail,
+                           const rpc::RayException *creation_task_exception = nullptr);
+
   /// Handle actor creation task failure. This should be called
   /// - when scheduling an actor creation task is infeasible.
   /// - when actor cannot be created to the cluster (e.g., runtime environment ops
@@ -201,6 +218,11 @@ class GcsActorManager : public rpc::ActorInfoGcsServiceHandler,
   /// \param failure_type Scheduling failure type.
   /// \param scheduling_failure_message The scheduling failure error message.
   void OnActorSchedulingFailed(
+      std::shared_ptr<GcsActor> actor,
+      const rpc::RequestWorkerLeaseReply::SchedulingFailureType failure_type,
+      const std::string &scheduling_failure_message);
+
+  void OnActorSchedulingFailedWrapper(
       std::shared_ptr<GcsActor> actor,
       const rpc::RequestWorkerLeaseReply::SchedulingFailureType failure_type,
       const std::string &scheduling_failure_message);
@@ -319,6 +341,20 @@ class GcsActorManager : public rpc::ActorInfoGcsServiceHandler,
                     bool force_kill = true,
                     std::function<void()> done_callback = nullptr,
                     int64_t graceful_shutdown_timeout_ms = -1);
+
+  /// Destroy an actor on the correct IO context.
+  ///
+  /// \param[in] actor_id The actor id to destroy.
+  /// \param[in] death_cause The reason why actor is destroyed.
+  /// \param[in] force_kill Whether destory the actor forcelly.
+  /// \param[in] done_callback Called when destroy finishes.
+  /// \param[in] graceful_shutdown_timeout_ms Timeout in ms for graceful shutdown.
+  ///            If graceful shutdown doesn't complete, falls back to force kill.
+  void DestroyActorWrapper(const ActorID &actor_id,
+                           const rpc::ActorDeathCause &death_cause,
+                           bool force_kill = true,
+                           std::function<void()> done_callback = nullptr,
+                           int64_t graceful_shutdown_timeout_ms = -1);
 
   /// Get unresolved actors that were submitted from the specified node.
   absl::flat_hash_map<WorkerID, absl::flat_hash_set<ActorID>>
