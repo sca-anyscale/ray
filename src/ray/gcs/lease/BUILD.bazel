@@ -11,6 +11,7 @@ ray_cc_library(
     ],
     deps = [
         "//src/ray/asio:instrumented_io_context",
+        "//src/ray/asio:periodical_runner_interface",
         "//src/ray/common:id",
         "//src/ray/common:lease",
         "//src/ray/core_worker_rpc_client:core_worker_client_pool",

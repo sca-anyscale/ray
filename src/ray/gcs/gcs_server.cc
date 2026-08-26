@@ -672,15 +672,16 @@ void GcsServer::InitGcsJobManager(
 }
 
 void GcsServer::InitGcsLeaseManager() {
-  RAY_CHECK(gcs_publisher_ && observability_publisher_ && cluster_lease_manager_);
+  RAY_CHECK(cluster_lease_manager_ && gcs_node_manager_);
 
-  gcs_lease_manager_ =
-      std::make_unique<GcsLeaseManager>(*cluster_lease_manager_,
-                                        *gcs_node_manager_,
-                                        io_context_provider_.GetDefaultIOContext(),
-                                        raylet_client_pool_,
-                                        clock_,
-                                        kGCSNodeID);
+  gcs_lease_manager_ = std::make_unique<GcsLeaseManager>(
+      *cluster_lease_manager_,
+      *gcs_node_manager_,
+      io_context_provider_.GetDefaultIOContext(),
+      PeriodicalRunner::Create(io_context_provider_.GetDefaultIOContext()),
+      raylet_client_pool_,
+      clock_,
+      kGCSNodeID);
 
   rpc_server_.RegisterService(std::make_unique<rpc::WorkerLeaseGrpcService>(
       io_context_provider_.GetDefaultIOContext(),
