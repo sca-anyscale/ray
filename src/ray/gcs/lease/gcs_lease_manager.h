@@ -16,6 +16,7 @@
 
 #include <gtest/gtest_prod.h>
 
+#include <deque>
 #include <list>
 #include <memory>
 #include <string>
@@ -23,6 +24,7 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "ray/asio/instrumented_io_context.h"
+#include "ray/asio/periodical_runner_interface.h"
 #include "ray/common/id.h"
 #include "ray/gcs/gcs_node_manager.h"
 #include "ray/gcs/grpc_service_interfaces.h"
@@ -55,6 +57,7 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   GcsLeaseManager(ClusterLeaseManager &cluster_lease_manager,
                   GcsNodeManager &gcs_node_manager,
                   instrumented_io_context &io_context,
+                  std::shared_ptr<PeriodicalRunnerInterface> periodical_runner,
                   rpc::RayletClientPool &raylet_client_pool,
                   ClockInterface &clock,
                   NodeID local_node_id);
@@ -193,9 +196,19 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
     it->second.erase(lease_id);
   }
 
+  /// Records a CancelWorkerLease tombstone so a later-arriving RequestWorkerLease
+  /// for the same lease ID is rejected. Evicts the oldest tombstones if the cap
+  /// is exceeded.
+  void AddCancelledLeaseTombstone(const LeaseID &lease_id);
+
+  /// Garbage-collects CancelWorkerLease tombstones past their TTL.
+  void GCCancelledLeaseTombstones();
+
   ClusterLeaseManager &cluster_lease_manager_;
   GcsNodeManager &gcs_node_manager_;
   instrumented_io_context &io_context_;
+  /// The runner to run function periodically.
+  std::shared_ptr<PeriodicalRunnerInterface> periodical_runner_;
   /// The cached raylet clients used to communicate with raylet.
   rpc::RayletClientPool &raylet_client_pool_;
 
@@ -213,6 +226,13 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
 
   absl::flat_hash_map<NodeID, int64_t> node_lease_versions_;
   int64_t syncer_version_ = clock_.SteadyNowMillis();
+
+  /// Lease IDs whose CancelWorkerLease we have already handled. Used to reject a
+  /// RequestWorkerLease that arrives after its cancellation due to message reordering.
+  absl::flat_hash_set<LeaseID> cancelled_lease_tombstones_;
+  /// Tombstones in insertion order, which is also expiry order because the TTL is
+  /// uniform. Used to evict the oldest entries first.
+  std::deque<std::pair<LeaseID, SteadyTimePoint>> cancelled_lease_tombstone_queue_;
 
   // Debug info.
   enum CountType {

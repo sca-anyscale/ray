@@ -17,18 +17,26 @@
 namespace ray {
 namespace gcs {
 
-GcsLeaseManager::GcsLeaseManager(ClusterLeaseManager &cluster_lease_manager,
-                                 GcsNodeManager &gcs_node_manager,
-                                 instrumented_io_context &io_context,
-                                 rpc::RayletClientPool &raylet_client_pool,
-                                 ClockInterface &clock,
-                                 NodeID local_node_id)
+GcsLeaseManager::GcsLeaseManager(
+    ClusterLeaseManager &cluster_lease_manager,
+    GcsNodeManager &gcs_node_manager,
+    instrumented_io_context &io_context,
+    std::shared_ptr<PeriodicalRunnerInterface> periodical_runner,
+    rpc::RayletClientPool &raylet_client_pool,
+    ClockInterface &clock,
+    NodeID local_node_id)
     : cluster_lease_manager_(cluster_lease_manager),
       gcs_node_manager_(gcs_node_manager),
       io_context_(io_context),
+      periodical_runner_(periodical_runner),
       raylet_client_pool_(raylet_client_pool),
       clock_(clock),
-      local_node_id_(std::move(local_node_id)) {}
+      local_node_id_(std::move(local_node_id)) {
+  periodical_runner_->RunFnPeriodically(
+      [this]() { GCCancelledLeaseTombstones(); },
+      RayConfig::instance().cancelled_lease_tombstone_ttl_ms(),
+      "NodeManager.GCCancelledLeaseTombstones");
+}
 
 void GcsLeaseManager::HandleGcsRequestWorkerLease(
     rpc::GcsRequestWorkerLeaseRequest request,
@@ -69,6 +77,17 @@ void GcsLeaseManager::RequestWorkerLease(const rpc::RequestWorkerLeaseRequest &r
     reply->mutable_worker_address()->set_worker_id(worker_address.worker_id());
     reply->mutable_worker_address()->set_node_id(worker_address.node_id());
     ++counts_[CountType::RETRIED_REQUEST_WORKER_LEASE_REQUEST];
+    lease_request_callback(Status::OK());
+    return;
+  }
+
+  // Reject leases that were already cancelled (e.g. CancelWorkerLease arrived
+  // before this RequestWorkerLease due to message reordering).
+  if (cancelled_lease_tombstones_.contains(lease_id)) {
+    reply->set_canceled(true);
+    reply->set_failure_type(rpc::RequestWorkerLeaseReply::SCHEDULING_CANCELLED_INTENDED);
+    reply->set_scheduling_failure_message(
+        "Cancelled leasing because the lease was already cancelled.");
     lease_request_callback(Status::OK());
     return;
   }
@@ -205,6 +224,10 @@ void GcsLeaseManager::HandleGcsCancelWorkerLease(
 void GcsLeaseManager::CancelWorkerLease(const LeaseID &lease_id) {
   RAY_CHECK(RayConfig::instance().centralized_actor_scheduling() == true);
   RAY_CHECK(known_leases_.contains(lease_id) == false);
+
+  // The tombstone makes the cancellation stick even if the lease request has not
+  // reached us yet, so the caller never has to retry.
+  AddCancelledLeaseTombstone(lease_id);
 
   cluster_lease_manager_.CancelLease(lease_id);
 }
@@ -392,5 +415,36 @@ std::string GcsLeaseManager::DebugString() const {
          << "\n- Known leases: " << known_leases_.size();
   return stream.str();
 }
+
+void GcsLeaseManager::AddCancelledLeaseTombstone(const LeaseID &lease_id) {
+  if (!cancelled_lease_tombstones_.insert(lease_id).second) {
+    return;
+  }
+  cancelled_lease_tombstone_queue_.emplace_back(lease_id, clock_.SteadyNow());
+  const auto max_tombstones = RayConfig::instance().max_cancelled_lease_tombstones();
+  if (cancelled_lease_tombstones_.size() > max_tombstones) {
+    const auto &oldest = cancelled_lease_tombstone_queue_.front();
+    cancelled_lease_tombstones_.erase(oldest.first);
+    cancelled_lease_tombstone_queue_.pop_front();
+  }
+}
+
+void GcsLeaseManager::GCCancelledLeaseTombstones() {
+  const auto ttl_ms =
+      static_cast<int64_t>(RayConfig::instance().cancelled_lease_tombstone_ttl_ms());
+  const auto now = clock_.SteadyNow();
+  while (!cancelled_lease_tombstone_queue_.empty()) {
+    const auto &oldest = cancelled_lease_tombstone_queue_.front();
+    auto age_ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - oldest.second)
+            .count();
+    if (age_ms <= ttl_ms) {
+      break;
+    }
+    cancelled_lease_tombstones_.erase(oldest.first);
+    cancelled_lease_tombstone_queue_.pop_front();
+  }
+}
+
 }  // namespace gcs
 }  // namespace ray
