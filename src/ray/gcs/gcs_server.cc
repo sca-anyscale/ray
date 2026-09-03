@@ -340,6 +340,7 @@ void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
   InitClusterLeaseManager();
   InitGcsResourceManager(gcs_init_data);
   InitGcsHealthCheckManager(gcs_init_data);
+  InitGcsScheduler();
   InitGcsLeaseManager();
   InitRaySyncer(gcs_init_data);
   InitKVService();
@@ -677,6 +678,13 @@ void GcsServer::InitGcsJobManager(
       io_context_provider_.GetDefaultIOContext(),
       *gcs_job_manager_,
       RayConfig::instance().gcs_max_active_rpcs_per_handler()));
+}
+
+void GcsServer::InitGcsScheduler() {
+  RAY_CHECK(cluster_lease_manager_ && gcs_node_manager_);
+  gcs_scheduler_ = std::make_unique<GcsScheduler>(
+      *cluster_lease_manager_,
+      *gcs_node_manager_);
 }
 
 void GcsServer::InitGcsLeaseManager() {

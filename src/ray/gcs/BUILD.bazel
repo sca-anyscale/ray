@@ -273,6 +273,7 @@ ray_cc_library(
     deps = [
         ":gcs_resource_load_puller",
         ":gcs_task_manager",
+        "//src/ray/gcs/scheduler:gcs_scheduler",
         "//src/ray/observability:ray_event_recorder",
         "//src/ray/pubsub:gcs_publisher",
         "//src/ray/ray_syncer",
@@ -452,6 +453,7 @@ ray_cc_library(
         "//src/ray/gcs/actor:gcs_actor_manager",
         "//src/ray/gcs/actor:gcs_actor_scheduler",
         "//src/ray/gcs/lease:gcs_lease_manager",
+        "//src/ray/gcs/scheduler:gcs_scheduler",
         ":gcs_autoscaler_state_manager",
         ":gcs_cluster_resource_storage",
         ":gcs_function_manager",
