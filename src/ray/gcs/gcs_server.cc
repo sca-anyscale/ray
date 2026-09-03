@@ -419,6 +419,7 @@ void GcsServer::DoStart(const GcsInitData &gcs_init_data) {
   InitClusterLeaseManager();
   InitGcsResourceManager(gcs_init_data);
   InitGcsHealthCheckManager(gcs_init_data);
+  InitGcsScheduler();
   InitGcsLeaseManager();
   InitRaySyncer(gcs_init_data);
   InitKVService();
@@ -916,6 +917,13 @@ void GcsServer::InitGcsJobManager(
                                       clock_);
   gcs_job_manager_->Initialize(gcs_init_data);
   // Service registration is centralized in RegisterRpcServices().
+}
+
+void GcsServer::InitGcsScheduler() {
+  RAY_CHECK(cluster_lease_manager_ && gcs_node_manager_);
+  gcs_scheduler_ = std::make_unique<GcsScheduler>(
+      *cluster_lease_manager_,
+      *gcs_node_manager_);
 }
 
 void GcsServer::InitGcsLeaseManager() {

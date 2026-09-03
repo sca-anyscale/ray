@@ -23,6 +23,7 @@
 #include "ray/gcs/gcs_node_manager.h"
 #include "ray/gcs/gcs_resource_load_puller.h"
 #include "ray/gcs/gcs_task_manager.h"
+#include "ray/gcs/scheduler/gcs_scheduler.h"
 #include "ray/observability/ray_event_recorder.h"
 #include "ray/pubsub/gcs_publisher.h"
 #include "ray/ray_syncer/ray_syncer.h"
@@ -67,6 +68,8 @@ struct GcsServerIOContextPolicy {
       return IndexOf("node_manager_io_context");
     } else if constexpr (std::is_same_v<T, GcsResourceLoadPuller>) {
       return IndexOf("resource_load_pull_io_context");
+    } else if constexpr (std::is_same_v<T, GcsScheduler>) {
+      return IndexOf("scheduler");
     } else {
       // default io context
       return -1;
@@ -77,7 +80,7 @@ struct GcsServerIOContextPolicy {
   // and a complete set of those returned from GetDedicatedIOContextIndex. Or you
   // can get runtime crashes when accessing a missing name, or get leaks by
   // creating unused threads.
-  constexpr static std::array<IOContextMetadata, 8> kAllDedicatedIOContexts{{
+  constexpr static std::array<IOContextMetadata, 9> kAllDedicatedIOContexts{{
       // task_io_context only runs GcsTaskManager, which ingests and serves
       // task-state events (observability) and drops events under load by design.
       // It is not on the GCS control plane, so a backlog here (e.g. under a
@@ -105,6 +108,9 @@ struct GcsServerIOContextPolicy {
       {"resource_load_pull_io_context",
        /*enable_lag_probe=*/true,
        /*used_for_health_check=*/false},
+      {"scheduler",
+       /*enable_lag_probe=*/true,
+       /*used_for_health_check=*/true},
   }};
 
   // Returns int (not size_t) to match GetDedicatedIOContextIndex's return type and

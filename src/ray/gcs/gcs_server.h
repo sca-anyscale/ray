@@ -39,6 +39,7 @@
 #include "ray/gcs/postable/postable.h"
 #include "ray/gcs/pubsub_handler.h"
 #include "ray/gcs/runtime_env_handler.h"
+#include "ray/gcs/scheduler/gcs_scheduler.h"
 #include "ray/gcs/usage_stats_client.h"
 #include "ray/observability/metric_interface.h"
 #include "ray/observability/ray_event_recorder.h"
@@ -231,6 +232,9 @@ class GcsServer {
   /// Restore node resources after node manager is initialized
   void RestoreNodeResources(const GcsInitData &gcs_init_data);
 
+  /// Initialize scheduler.
+  void InitGcsScheduler();
+
   /// Initialize cluster lease manager.
   void InitClusterLeaseManager();
 
@@ -347,6 +351,7 @@ class GcsServer {
   /// The cluster lease manager.
   std::unique_ptr<ClusterLeaseManager> cluster_lease_manager_;
   NoopLocalLeaseManager local_lease_manager_;
+  std::unique_ptr<GcsScheduler> gcs_scheduler_;
   /// GCS's lease manager
   std::unique_ptr<GcsLeaseManager> gcs_lease_manager_;
   std::unique_ptr<gcs::GcsTableStorage> gcs_table_storage_;
