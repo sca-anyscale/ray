@@ -413,6 +413,9 @@ void GcsServer::Stop() {
           /*service_name=*/"", false);
     }
 
+    // flush state to logs before exiting
+    PrintDebugState();
+
     // Flush any remaining events before stopping.
     if (ray_event_recorder_) {
       ray_event_recorder_->StopExportingEvents();
