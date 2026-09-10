@@ -111,7 +111,8 @@ class GcsServer {
  public:
   GcsServer(const GcsServerConfig &config,
             const ray::gcs::GcsServerMetrics &metrics,
-            instrumented_io_context &main_service);
+            instrumented_io_context &main_service,
+            boost::asio::io_context &metric_context);
   virtual ~GcsServer();
 
   /// Start gcs server.
@@ -444,6 +445,9 @@ class GcsServer {
 
   /// Client for ClusterResourceManager to use for updating table storage
   std::unique_ptr<ClusterResourceStorageInterface> cluster_resource_storage_;
+
+  boost::asio::io_context &metric_context_;
+  std::thread metric_thread_;
 };
 
 }  // namespace gcs
