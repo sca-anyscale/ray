@@ -32,7 +32,7 @@ GcsActorScheduler::GcsActorScheduler(
     instrumented_io_context &io_context,
     GcsActorTable &gcs_actor_table,
     const GcsNodeManager &gcs_node_manager,
-    ClusterLeaseManager &cluster_lease_manager,
+    GcsScheduler &gcs_scheduler,
     GcsActorSchedulerFailureCallback schedule_failure_handler,
     GcsActorSchedulerSuccessCallback schedule_success_handler,
     rpc::RayletClientPool &raylet_client_pool,
@@ -42,7 +42,7 @@ GcsActorScheduler::GcsActorScheduler(
     : io_context_(io_context),
       gcs_actor_table_(gcs_actor_table),
       gcs_node_manager_(gcs_node_manager),
-      cluster_lease_manager_(cluster_lease_manager),
+      gcs_scheduler_(gcs_scheduler),
       schedule_failure_handler_(std::move(schedule_failure_handler)),
       schedule_success_handler_(std::move(schedule_success_handler)),
       raylet_client_pool_(raylet_client_pool),
@@ -185,11 +185,21 @@ void GcsActorScheduler::ScheduleByGcs(std::shared_ptr<GcsActor> actor) {
   RayLease lease(
       actor->GetLeaseSpecification(),
       owner_node.has_value() ? actor->GetOwnerNodeID().Binary() : std::string());
-  cluster_lease_manager_.QueueAndScheduleLease(
+
+  auto reply_callback_wrapper =
+      [this, send_reply_callback](
+          Status status, std::function<void()> success, std::function<void()> failure) {
+        io_context_.post(
+            [send_reply_callback, status, success, failure]() {
+              send_reply_callback(status, success, failure);
+            },
+            "GcsActorScheduler::ReplyCallback");
+      };
+  gcs_scheduler_.QueueAndScheduleLease(
       std::move(lease),
       /*grant_or_reject=*/false,
       /*is_selected_based_on_locality=*/false,
-      {ray::raylet::internal::ReplyCallback(std::move(send_reply_callback),
+      {ray::raylet::internal::ReplyCallback(std::move(reply_callback_wrapper),
                                             reply.get())});
 }
 
@@ -714,14 +724,13 @@ void GcsActorScheduler::HandleWorkerLeaseRejectedReply(
 void GcsActorScheduler::OnActorDestruction(std::shared_ptr<GcsActor> actor) {
   if (!actor->GetAcquiredResources().IsEmpty()) {
     ReturnActorAcquiredResources(actor);
-    cluster_lease_manager_.ScheduleAndGrantLeases();
+    gcs_scheduler_.ScheduleAndGrantLeases();
   }
 }
 
 void GcsActorScheduler::ReturnActorAcquiredResources(std::shared_ptr<GcsActor> actor) {
   if (RayConfig::instance().centralized_actor_scheduling()) {
-    auto &cluster_resource_manager =
-        cluster_lease_manager_.GetClusterResourceScheduler().GetClusterResourceManager();
+    auto &cluster_resource_manager = gcs_scheduler_.GetClusterResourceManager();
     cluster_resource_manager.AddNodeAvailableResources(
         scheduling::NodeID(actor->GetNodeID().Binary()),
         actor->GetAcquiredResources().GetResourceSet());
@@ -732,8 +741,7 @@ void GcsActorScheduler::ReturnActorAcquiredResources(std::shared_ptr<GcsActor> a
 void GcsActorScheduler::ReallocateResources(std::shared_ptr<GcsActor> actor,
                                             const ResourceRequest &resources) {
   if (RayConfig::instance().centralized_actor_scheduling()) {
-    auto &cluster_resource_manager =
-        cluster_lease_manager_.GetClusterResourceScheduler().GetClusterResourceManager();
+    auto &cluster_resource_manager = gcs_scheduler_.GetClusterResourceManager();
     cluster_resource_manager.SubtractNodeAvailableResources(
         scheduling::NodeID(actor->GetNodeID().Binary()), resources);
 

@@ -9,6 +9,7 @@ ray_cc_library(
         "gcs_scheduler.h",
     ],
     deps = [
+        "//src/ray/asio:instrumented_io_context",
         "//src/ray/common:id",
         "//src/ray/gcs:gcs_node_manager",
         "//src/ray/raylet/scheduling:cluster_lease_manager",

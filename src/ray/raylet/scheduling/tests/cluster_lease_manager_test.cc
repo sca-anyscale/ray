@@ -488,6 +488,7 @@ class ClusterLeaseManagerTest : public ::testing::Test {
   }
 
   void AssertNoLeaks() {
+    absl::MutexLock lock(&lease_manager_.lease_mutex_);
     ASSERT_TRUE(lease_manager_.leases_to_schedule_.empty());
     ASSERT_TRUE(local_lease_manager_->leases_to_grant_.empty());
     ASSERT_TRUE(local_lease_manager_->waiting_leases_index_.empty());
@@ -2329,6 +2330,7 @@ TEST_F(ClusterLeaseManagerTest, FeasibleToNonFeasible) {
   ASSERT_EQ(leased_workers_.size(), 1);
   ASSERT_TRUE(callback_occurred1);
   ASSERT_EQ(pool_.workers.size(), 0);
+  absl::MutexLock lock(&lease_manager_.lease_mutex_);
   ASSERT_EQ(lease_manager_.leases_to_schedule_.size(), 0);
   ASSERT_EQ(local_lease_manager_->leases_to_grant_.size(), 0);
   ASSERT_EQ(lease_manager_.infeasible_leases_.size(), 0);

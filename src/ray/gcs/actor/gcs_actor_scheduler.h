@@ -31,8 +31,8 @@
 #include "ray/gcs/actor/gcs_actor.h"
 #include "ray/gcs/gcs_node_manager.h"
 #include "ray/gcs/gcs_table_storage.h"
+#include "ray/gcs/scheduler/gcs_scheduler.h"
 #include "ray/observability/metric_interface.h"
-#include "ray/raylet/scheduling/cluster_lease_manager.h"
 #include "ray/raylet_rpc_client/raylet_client_pool.h"
 #include "ray/util/clock.h"
 #include "src/ray/protobuf/common.pb.h"
@@ -40,7 +40,7 @@
 #include "src/ray/protobuf/gcs.pb.h"
 
 namespace ray {
-using raylet::ClusterLeaseManager;
+// using raylet::ClusterLeaseManager;
 namespace gcs {
 
 using GcsActorSchedulerFailureCallback =
@@ -129,7 +129,7 @@ class GcsActorScheduler : public GcsActorSchedulerInterface {
       instrumented_io_context &io_context,
       GcsActorTable &gcs_actor_table,
       const GcsNodeManager &gcs_node_manager,
-      ClusterLeaseManager &cluster_lease_manager,
+      GcsScheduler &gcs_scheduler,
       GcsActorSchedulerFailureCallback schedule_failure_handler,
       GcsActorSchedulerSuccessCallback schedule_success_handler,
       rpc::RayletClientPool &raylet_client_pool,
@@ -365,7 +365,7 @@ class GcsActorScheduler : public GcsActorSchedulerInterface {
   /// Reference of GcsNodeManager.
   const GcsNodeManager &gcs_node_manager_;
   /// Reference of ClusterLeaseManager
-  ClusterLeaseManager &cluster_lease_manager_;
+  GcsScheduler &gcs_scheduler_;
   /// The handler to handle the scheduling failures.
   GcsActorSchedulerFailureCallback schedule_failure_handler_;
   /// The handler to handle the successful scheduling.

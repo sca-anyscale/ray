@@ -207,15 +207,17 @@ class ClusterLeaseManager : public ClusterLeaseManagerInterface {
 
   LocalLeaseManagerInterface &local_lease_manager_;
 
+  mutable absl::Mutex lease_mutex_;
   /// Queue of lease requests that are waiting for resources to become available.
   /// Leases move from scheduled -> dispatch | waiting.
   absl::flat_hash_map<SchedulingClass, std::deque<std::shared_ptr<internal::Work>>>
-      leases_to_schedule_;
+      leases_to_schedule_ ABSL_GUARDED_BY(lease_mutex_);
 
   /// Queue of lease requests that are infeasible.
   /// Leases go between scheduling <-> infeasible.
   absl::flat_hash_map<SchedulingClass, std::deque<std::shared_ptr<internal::Work>>>
-      infeasible_leases_;
+      infeasible_leases_ ABSL_GUARDED_BY(lease_mutex_);
+  ;
 
   const SchedulerResourceReporter scheduler_resource_reporter_;
   mutable SchedulerStats internal_stats_;

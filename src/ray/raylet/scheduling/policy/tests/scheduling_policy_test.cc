@@ -86,6 +86,7 @@ class SchedulingPolicyTest : public ::testing::Test {
         std::make_unique<ray::raylet::RayletClusterResourceStorage>();
     auto cluster_resource_manager = std::make_unique<ClusterResourceManager>(
         PeriodicalRunner::Create(io_context), *cluster_resource_storage_.get());
+    absl::MutexLock lock(&cluster_resource_manager->node_mutex_);
     cluster_resource_manager->nodes_ = nodes_map;
     return cluster_resource_manager;
   }

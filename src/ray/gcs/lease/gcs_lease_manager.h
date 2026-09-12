@@ -29,14 +29,15 @@
 #include "ray/gcs/gcs_node_manager.h"
 #include "ray/gcs/grpc_service_interfaces.h"
 #include "ray/gcs/lease/lease_info.h"
+#include "ray/gcs/scheduler/gcs_scheduler.h"
 #include "ray/ray_syncer/ray_syncer.h"
-#include "ray/raylet/scheduling/cluster_lease_manager.h"
+//#include "ray/raylet/scheduling/cluster_lease_manager.h"
 #include "ray/util/clock.h"
 #include "ray/util/counter_map.h"
 #include "src/ray/protobuf/gcs_service.pb.h"
 
 namespace ray {
-using raylet::ClusterLeaseManager;
+// using raylet::ClusterLeaseManager;
 namespace gcs {
 
 using LeaseRequestCallback = std::function<void(const Status &status)>;
@@ -54,7 +55,7 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   /// \param raylet_client_pool The client pool used to communicate with raylets
   /// \param clock Clock utilities
   /// \param local_node_id the local node ID of GCS itself
-  GcsLeaseManager(ClusterLeaseManager &cluster_lease_manager,
+  GcsLeaseManager(GcsScheduler &gcs_scheduler,
                   GcsNodeManager &gcs_node_manager,
                   instrumented_io_context &io_context,
                   std::shared_ptr<PeriodicalRunnerInterface> periodical_runner,
@@ -204,7 +205,7 @@ class GcsLeaseManager : public rpc::WorkerLeaseGcsServiceHandler,
   /// Garbage-collects CancelWorkerLease tombstones past their TTL.
   void GCCancelledLeaseTombstones();
 
-  ClusterLeaseManager &cluster_lease_manager_;
+  GcsScheduler &gcs_scheduler_;
   GcsNodeManager &gcs_node_manager_;
   instrumented_io_context &io_context_;
   /// The runner to run function periodically.

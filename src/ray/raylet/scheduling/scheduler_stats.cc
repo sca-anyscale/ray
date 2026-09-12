@@ -42,6 +42,7 @@ void SchedulerStats::ComputeStats() {
   size_t num_tasks_waiting_for_workers = 0;
   size_t num_cancelled_leases = 0;
 
+  absl::MutexLock lock(&cluster_lease_manager_.lease_mutex_);
   size_t num_infeasible_leases =
       std::accumulate(cluster_lease_manager_.infeasible_leases_.begin(),
                       cluster_lease_manager_.infeasible_leases_.end(),
@@ -89,6 +90,7 @@ void SchedulerStats::ComputeStats() {
     }
     return state + pair.second.size();
   };
+
   size_t num_leases_to_schedule =
       std::accumulate(cluster_lease_manager_.leases_to_schedule_.begin(),
                       cluster_lease_manager_.leases_to_schedule_.end(),
@@ -122,6 +124,7 @@ void SchedulerStats::RecordMetrics() {
   local_lease_manager_.GetSchedulerMetrics().internal_num_spilled_tasks.Record(
       metric_leases_spilled_ + local_lease_manager_.GetNumLeaseSpilled());
   local_lease_manager_.RecordMetrics();
+  absl::MutexLock lock(&cluster_lease_manager_.lease_mutex_);
   local_lease_manager_.GetSchedulerMetrics()
       .internal_num_infeasible_scheduling_classes.Record(
           cluster_lease_manager_.infeasible_leases_.size());
