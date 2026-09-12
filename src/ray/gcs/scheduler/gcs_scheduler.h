@@ -22,8 +22,9 @@
 #include <utility>
 
 #include "absl/container/flat_hash_map.h"
+#include "ray/asio/instrumented_io_context.h"
 //#include "ray/common/id.h"
-#include "ray/gcs/gcs_node_manager.h"
+//#include "ray/gcs/gcs_node_manager.h"
 #include "ray/raylet/scheduling/cluster_lease_manager.h"
 //#include "ray/util/counter_map.h"
 
@@ -41,8 +42,14 @@ class GcsScheduler {
   /// \param gcs_lease_manager Used for node liveness checks
   /// \param io_context the IO context in which this component executes
   /// \param clock Clock utilities
+#if 0
   GcsScheduler(ClusterLeaseManager &cluster_lease_manager,
                   GcsNodeManager &gcs_node_manager);
+#else
+  GcsScheduler(ClusterLeaseManager &cluster_lease_manager,
+               instrumented_io_context &default_context,
+               instrumented_io_context &scheduler_context);
+#endif
 
   /// Queue lease and schedule. This happens when processing the worker lease request.
   ///
@@ -60,9 +67,26 @@ class GcsScheduler {
   // Schedule and grant leases.
   void ScheduleAndGrantLeases();
 
+  ClusterResourceManager &GetClusterResourceManager();
+
+  bool IsLeaseQueued(const SchedulingClass &scheduling_class,
+                     const LeaseID &lease_id) const;
+
+  bool CancelLease(const LeaseID &lease_id,
+                   rpc::RequestWorkerLeaseReply::SchedulingFailureType failure_type =
+                       rpc::RequestWorkerLeaseReply::SCHEDULING_CANCELLED_INTENDED,
+                   const std::string &scheduling_failure_message = "");
+
+  bool AddReplyCallback(const SchedulingClass &scheduling_class,
+                        const LeaseID &lease_id,
+                        rpc::SendReplyCallback send_reply_callback,
+                        rpc::RequestWorkerLeaseReply *reply);
+
  private:
   ClusterLeaseManager &cluster_lease_manager_;
-  GcsNodeManager &gcs_node_manager_;
+  instrumented_io_context &default_context_;
+  instrumented_io_context &scheduler_context_;
+  // GcsNodeManager &gcs_node_manager_;
 };
 
 }  // namespace gcs

@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/synchronization/mutex.h"
 #include "ray/asio/periodical_runner_interface.h"
 #include "ray/common/bundle_location_index.h"
 #include "ray/common/scheduling/cluster_resource_data.h"
@@ -128,10 +129,12 @@ class ClusterResourceManager {
 
   /// Return if the node is tracked.
   bool HasNode(const scheduling::NodeID &node_id) const {
+    absl::MutexLock lock(&node_mutex_);
     return nodes_.count(node_id) > 0;
   }
 
   bool IsNodeDraining(const scheduling::NodeID &node_id) const {
+    absl::MutexLock lock(&node_mutex_);
     const auto &node = map_find_or_die(nodes_, node_id);
     return node.GetLocalView().is_draining;
   }
@@ -206,9 +209,10 @@ class ClusterResourceManager {
   /// If node_id not found, return false; otherwise return true.
   bool GetNodeResources(scheduling::NodeID node_id, NodeResources *ret_resources) const;
 
+  mutable absl::Mutex node_mutex_;
   /// List of nodes in the clusters and their resources organized as a map.
   /// The key of the map is the node ID.
-  absl::flat_hash_map<scheduling::NodeID, Node> nodes_;
+  absl::flat_hash_map<scheduling::NodeID, Node> nodes_ ABSL_GUARDED_BY(node_mutex_);
 
   /// Resource message updated
   absl::flat_hash_map<scheduling::NodeID, NodeResources> received_node_resources_;
