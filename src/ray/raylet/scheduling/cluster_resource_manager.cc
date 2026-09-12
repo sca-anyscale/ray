@@ -51,6 +51,7 @@ ClusterResourceManager::ClusterResourceManager(
 
 std::optional<absl::Time> ClusterResourceManager::GetNodeResourceModifiedTs(
     scheduling::NodeID node_id) const {
+  absl::MutexLock lock(&node_mutex_);
   auto iter = nodes_.find(node_id);
   if (iter == nodes_.end()) {
     return std::nullopt;
@@ -69,6 +70,7 @@ void ClusterResourceManager::AddOrUpdateNode(
 
 void ClusterResourceManager::AddOrUpdateNode(scheduling::NodeID node_id,
                                              const NodeResources &node_resources) {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     // This node is new, so add it to the map.
@@ -84,9 +86,12 @@ void ClusterResourceManager::AddOrUpdateNode(scheduling::NodeID node_id,
 bool ClusterResourceManager::UpdateNode(
     scheduling::NodeID node_id,
     const syncer::ResourceViewSyncMessage &resource_view_sync_message) {
-  if (!nodes_.contains(node_id)) {
+  absl::MutexLock lock(&node_mutex_);
+  auto it = nodes_.find(node_id);
+  if (it == nodes_.end()) {
     return false;
   }
+  auto node = it->second;
 
   const auto resources_total =
       MapFromProtobuf(resource_view_sync_message.resources_total());
@@ -94,10 +99,17 @@ bool ClusterResourceManager::UpdateNode(
       MapFromProtobuf(resource_view_sync_message.resources_available());
   auto node_labels = MapFromProtobuf(resource_view_sync_message.labels());
   NodeResources local_view;
-  RAY_CHECK(GetNodeResources(node_id, &local_view));
+#if 0
+  RAY_CHECK(GetNodeResourcesLocked(node_id, &local_view));
+#else
+  local_view = node.GetLocalView();
+#endif
 
-  local_view.total = NodeResourceSet(resources_total);
-  local_view.SetAvailable(NodeResourceSet(resources_available));
+  if (!RayConfig::instance().centralized_actor_scheduling()) {
+    local_view.total = NodeResourceSet(resources_total);
+    local_view.SetAvailable(NodeResourceSet(resources_available));
+  }
+
   local_view.labels = std::move(node_labels);
   local_view.object_pulls_queued = resource_view_sync_message.object_pulls_queued();
 
@@ -113,7 +125,12 @@ bool ClusterResourceManager::UpdateNode(
         resource_view_sync_message.draining_deadline_timestamp_ms();
   }
 
+#if 0
   AddOrUpdateNode(node_id, local_view);
+#else
+  it->second = Node(local_view);
+  cluster_resource_storage_.UpdateStoredResources(node_id, local_view);
+#endif
   received_node_resources_[node_id] = std::move(local_view);
   return true;
 }
@@ -123,12 +140,14 @@ bool ClusterResourceManager::RemoveNode(scheduling::NodeID node_id) {
 
   cluster_resource_storage_.DeleteStoredResources(node_id);
 
+  absl::MutexLock lock(&node_mutex_);
   return nodes_.erase(node_id) != 0;
 }
 
 bool ClusterResourceManager::SetNodeDraining(const scheduling::NodeID &node_id,
                                              bool is_draining,
                                              int64_t draining_deadline_timestamp_ms) {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     return false;
@@ -149,6 +168,7 @@ bool ClusterResourceManager::SetNodeDraining(const scheduling::NodeID &node_id,
 
 bool ClusterResourceManager::GetNodeResources(scheduling::NodeID node_id,
                                               NodeResources *ret_resources) const {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it != nodes_.end()) {
     *ret_resources = it->second.GetLocalView();
@@ -160,15 +180,20 @@ bool ClusterResourceManager::GetNodeResources(scheduling::NodeID node_id,
 
 const NodeResources &ClusterResourceManager::GetNodeResources(
     scheduling::NodeID node_id) const {
+  absl::MutexLock lock(&node_mutex_);
   const auto &node = map_find_or_die(nodes_, node_id);
   return node.GetLocalView();
 }
 
-int64_t ClusterResourceManager::NumNodes() const { return nodes_.size(); }
+int64_t ClusterResourceManager::NumNodes() const {
+  absl::MutexLock lock(&node_mutex_);
+  return nodes_.size();
+}
 
 void ClusterResourceManager::UpdateResourceCapacity(scheduling::NodeID node_id,
                                                     scheduling::ResourceID resource_id,
                                                     double resource_total) {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     NodeResources node_resources;
@@ -196,6 +221,7 @@ void ClusterResourceManager::UpdateResourceCapacity(scheduling::NodeID node_id,
 
 void ClusterResourceManager::ReleaseResources(scheduling::NodeID node_id,
                                               const ResourceRequest &resources) {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     return;
@@ -214,6 +240,7 @@ void ClusterResourceManager::ReleaseResources(scheduling::NodeID node_id,
 
 bool ClusterResourceManager::DeleteResources(
     scheduling::NodeID node_id, const std::vector<scheduling::ResourceID> &resource_ids) {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     return false;
@@ -231,17 +258,20 @@ bool ClusterResourceManager::DeleteResources(
 
 std::string ClusterResourceManager::GetNodeResourceViewString(
     scheduling::NodeID node_id) const {
+  absl::MutexLock lock(&node_mutex_);
   const auto &node = map_find_or_die(nodes_, node_id);
   return node.GetLocalView().DictString();
 }
 
 const absl::flat_hash_map<scheduling::NodeID, Node>
     &ClusterResourceManager::GetResourceView() const {
+  absl::MutexLock lock(&node_mutex_);
   return nodes_;
 }
 
 bool ClusterResourceManager::SubtractNodeAvailableResources(
     scheduling::NodeID node_id, const ResourceRequest &resource_request) {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     return false;
@@ -261,6 +291,7 @@ bool ClusterResourceManager::SubtractNodeAvailableResources(
 
 bool ClusterResourceManager::HasFeasibleResources(
     scheduling::NodeID node_id, const ResourceRequest &resource_request) const {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     return false;
@@ -273,6 +304,7 @@ bool ClusterResourceManager::HasAvailableResources(
     scheduling::NodeID node_id,
     const ResourceRequest &resource_request,
     bool ignore_object_store_memory_requirement) const {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     return false;
@@ -284,6 +316,7 @@ bool ClusterResourceManager::HasAvailableResources(
 
 bool ClusterResourceManager::AddNodeAvailableResources(scheduling::NodeID node_id,
                                                        const ResourceSet &resource_set) {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     return false;
@@ -329,6 +362,7 @@ BundleLocationIndex &ClusterResourceManager::GetBundleLocationIndex() {
 void ClusterResourceManager::SetNodeLabels(
     const scheduling::NodeID &node_id,
     absl::flat_hash_map<std::string, std::string> labels) {
+  absl::MutexLock lock(&node_mutex_);
   auto it = nodes_.find(node_id);
   if (it == nodes_.end()) {
     NodeResources node_resources;
@@ -341,17 +375,20 @@ void ClusterResourceManager::SetNodeLabels(
 
 const absl::flat_hash_map<std::string, std::string>
     &ClusterResourceManager::GetNodeLabels(scheduling::NodeID node_id) const {
+  absl::MutexLock lock(&node_mutex_);
   const auto &node = map_find_or_die(nodes_, node_id);
   return node.GetLocalView().labels;
 }
 
 FixedPoint ClusterResourceManager::GetNodeTotalResources(
     scheduling::NodeID node_id, scheduling::ResourceID resource_id) const {
+  absl::MutexLock lock(&node_mutex_);
   const auto &node = map_find_or_die(nodes_, node_id);
   return node.GetLocalView().total.Get(resource_id);
 }
 
 void ClusterResourceManager::RecordMetrics() const {
+  absl::MutexLock lock(&node_mutex_);
   local_resource_view_node_count_gauge_.Record(static_cast<double>(nodes_.size()));
 }
 

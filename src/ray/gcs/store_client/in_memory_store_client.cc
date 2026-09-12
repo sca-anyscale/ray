@@ -32,7 +32,7 @@ void InMemoryStoreClient::AsyncPut(const std::string &table_name,
   } else {
     inserted = table.Emplace(key, std::move(data));
   }
-  std::move(callback).Post("GcsInMemoryStore.Put", inserted);
+  std::move(callback).Dispatch("GcsInMemoryStore.Put", inserted);
 }
 
 void InMemoryStoreClient::AsyncGet(
@@ -44,7 +44,7 @@ void InMemoryStoreClient::AsyncGet(
   if (table != nullptr) {
     data = table->Get(key);
   }
-  std::move(callback).Post("GcsInMemoryStore.Get", Status::OK(), std::move(data));
+  std::move(callback).Dispatch("GcsInMemoryStore.Get", Status::OK(), std::move(data));
 }
 
 void InMemoryStoreClient::AsyncGetAll(

@@ -18,14 +18,14 @@ namespace ray {
 namespace gcs {
 
 GcsLeaseManager::GcsLeaseManager(
-    ClusterLeaseManager &cluster_lease_manager,
+    GcsScheduler &gcs_scheduler,
     GcsNodeManager &gcs_node_manager,
     instrumented_io_context &io_context,
     std::shared_ptr<PeriodicalRunnerInterface> periodical_runner,
     rpc::RayletClientPool &raylet_client_pool,
     ClockInterface &clock,
     NodeID local_node_id)
-    : cluster_lease_manager_(cluster_lease_manager),
+    : gcs_scheduler_(gcs_scheduler),
       gcs_node_manager_(gcs_node_manager),
       io_context_(io_context),
       periodical_runner_(periodical_runner),
@@ -128,9 +128,9 @@ void GcsLeaseManager::RequestWorkerLease(const rpc::RequestWorkerLeaseRequest &r
             });
       };
 
-  if (cluster_lease_manager_.IsLeaseQueued(
-          lease.GetLeaseSpecification().GetSchedulingClass(), lease_id)) {
-    RAY_CHECK(cluster_lease_manager_.AddReplyCallback(
+  if (gcs_scheduler_.IsLeaseQueued(lease.GetLeaseSpecification().GetSchedulingClass(),
+                                   lease_id)) {
+    RAY_CHECK(gcs_scheduler_.AddReplyCallback(
         lease.GetLeaseSpecification().GetSchedulingClass(),
         lease_id,
         std::move(send_reply_callback_wrapper),
@@ -138,7 +138,7 @@ void GcsLeaseManager::RequestWorkerLease(const rpc::RequestWorkerLeaseRequest &r
     return;
   }
 
-  cluster_lease_manager_.QueueAndScheduleLease(
+  gcs_scheduler_.QueueAndScheduleLease(
       std::move(lease),
       grant_or_reject,
       request.is_selected_based_on_locality(),
@@ -200,8 +200,7 @@ void GcsLeaseManager::ReleaseLease(const NodeID &node_id,
   }
 
   // release the resources for the lease
-  auto &cluster_resource_manager =
-      cluster_lease_manager_.GetClusterResourceScheduler().GetClusterResourceManager();
+  auto &cluster_resource_manager = gcs_scheduler_.GetClusterResourceManager();
 
   // XXX do we get placement resources for non-actors?
   cluster_resource_manager.AddNodeAvailableResources(
@@ -229,7 +228,7 @@ void GcsLeaseManager::CancelWorkerLease(const LeaseID &lease_id) {
   // reached us yet, so the caller never has to retry.
   AddCancelledLeaseTombstone(lease_id);
 
-  cluster_lease_manager_.CancelLease(lease_id);
+  gcs_scheduler_.CancelLease(lease_id);
 }
 
 void GcsLeaseManager::OnNodeAdd(const NodeID &node_id) {
@@ -352,8 +351,7 @@ void GcsLeaseManager::ReserveLease(const NodeID &node_id,
   Insert(lease_id, lease_info, node_id);
 
   // acquire the resources for the lease
-  auto &cluster_resource_manager =
-      cluster_lease_manager_.GetClusterResourceScheduler().GetClusterResourceManager();
+  auto &cluster_resource_manager = gcs_scheduler_.GetClusterResourceManager();
 
   auto resources = ResourceMapToResourceRequest(
       ray_lease.GetLeaseSpecification().GetRequiredPlacementResources().GetResourceMap(),

@@ -56,12 +56,14 @@ void ClusterLeaseManager::QueueAndScheduleLease(
                                                std::move(reply_callbacks));
   // If the scheduling class is infeasible, just add the work to the infeasible queue
   // directly.
+  lease_mutex_.Lock();
   auto infeasible_leases_iter = infeasible_leases_.find(scheduling_class);
   if (infeasible_leases_iter != infeasible_leases_.end()) {
     infeasible_leases_iter->second.emplace_back(std::move(work));
   } else {
     leases_to_schedule_[scheduling_class].emplace_back(std::move(work));
   }
+  lease_mutex_.Unlock();
   ScheduleAndGrantLeases();
 }
 
@@ -85,6 +87,7 @@ bool ClusterLeaseManager::CancelLeases(
     const std::string &scheduling_failure_message) {
   bool leases_cancelled = false;
 
+  absl::MutexLock lock(&lease_mutex_);
   ray::erase_if<SchedulingClass, std::shared_ptr<internal::Work>>(
       leases_to_schedule_, [&](const std::shared_ptr<internal::Work> &work) {
         if (predicate(work)) {
@@ -196,6 +199,7 @@ void ClusterLeaseManager::ScheduleAndGrantLeases() {
   // Always try to schedule infeasible tasks in case they are now feasible.
   TryScheduleInfeasibleLease();
   std::deque<std::shared_ptr<internal::Work>> works_to_cancel;
+  absl::MutexLock lock(&lease_mutex_);
   for (auto shapes_it = leases_to_schedule_.begin();
        shapes_it != leases_to_schedule_.end();) {
     auto &work_queue = shapes_it->second;
@@ -295,6 +299,7 @@ void ClusterLeaseManager::ScheduleAndGrantLeases() {
 }
 
 void ClusterLeaseManager::TryScheduleInfeasibleLease() {
+  absl::MutexLock lock(&lease_mutex_);
   for (auto shapes_it = infeasible_leases_.begin();
        shapes_it != infeasible_leases_.end();) {
     auto &work_queue = shapes_it->second;
@@ -367,6 +372,7 @@ const RayLease *ClusterLeaseManager::AnyPendingLeasesForResourceAcquisition(
   // We are guaranteed that these leases are blocked waiting for resources after a
   // call to ScheduleAndGrantLeases(). They may be waiting for workers as well, but
   // this should be a transient condition only.
+  absl::MutexLock lock(&lease_mutex_);
   for (const auto &shapes_it : leases_to_schedule_) {
     auto &work_queue = shapes_it.second;
     for (const auto &work_it : work_queue) {
@@ -465,6 +471,7 @@ ClusterResourceScheduler &ClusterLeaseManager::GetClusterResourceScheduler() con
 
 size_t ClusterLeaseManager::GetInfeasibleQueueSize() const {
   size_t count = 0;
+  absl::MutexLock lock(&lease_mutex_);
   for (const auto &cls_entry : infeasible_leases_) {
     count += cls_entry.second.size();
   }
@@ -473,6 +480,7 @@ size_t ClusterLeaseManager::GetInfeasibleQueueSize() const {
 
 size_t ClusterLeaseManager::GetPendingQueueSize() const {
   size_t count = 0;
+  absl::MutexLock lock(&lease_mutex_);
   for (const auto &cls_entry : leases_to_schedule_) {
     count += cls_entry.second.size();
   }
@@ -485,6 +493,7 @@ void ClusterLeaseManager::FillPendingActorInfo(rpc::ResourcesData &data) const {
 
 bool ClusterLeaseManager::IsLeaseQueued(const SchedulingClass &scheduling_class,
                                         const LeaseID &lease_id) const {
+  absl::MutexLock lock(&lease_mutex_);
   auto it = leases_to_schedule_.find(scheduling_class);
   if (it != leases_to_schedule_.end()) {
     for (const auto &work : it->second) {
@@ -510,6 +519,7 @@ bool ClusterLeaseManager::AddReplyCallback(const SchedulingClass &scheduling_cla
                                            const LeaseID &lease_id,
                                            rpc::SendReplyCallback send_reply_callback,
                                            rpc::RequestWorkerLeaseReply *reply) {
+  absl::MutexLock lock(&lease_mutex_);
   if (leases_to_schedule_.contains(scheduling_class)) {
     for (const auto &work : leases_to_schedule_[scheduling_class]) {
       if (work->lease_.GetLeaseSpecification().LeaseId() == lease_id) {

@@ -679,16 +679,22 @@ void GcsServer::InitGcsJobManager(
 
 void GcsServer::InitGcsScheduler() {
   RAY_CHECK(cluster_lease_manager_ && gcs_node_manager_);
+#if 0
   gcs_scheduler_ = std::make_unique<GcsScheduler>(
       *cluster_lease_manager_,
       *gcs_node_manager_);
+#endif
+  gcs_scheduler_ =
+      std::make_unique<GcsScheduler>(*cluster_lease_manager_,
+                                     io_context_provider_.GetDefaultIOContext(),
+                                     io_context_provider_.GetIOContext<GcsScheduler>());
 }
 
 void GcsServer::InitGcsLeaseManager() {
   RAY_CHECK(cluster_lease_manager_ && gcs_node_manager_);
 
   gcs_lease_manager_ = std::make_unique<GcsLeaseManager>(
-      *cluster_lease_manager_,
+      *gcs_scheduler_,
       *gcs_node_manager_,
       io_context_provider_.GetDefaultIOContext(),
       PeriodicalRunner::Create(io_context_provider_.GetDefaultIOContext()),
@@ -729,7 +735,7 @@ void GcsServer::InitGcsActorManager(
       std::make_unique<GcsActorScheduler>(io_context_provider_.GetDefaultIOContext(),
                                           gcs_table_storage_->ActorTable(),
                                           *gcs_node_manager_,
-                                          *cluster_lease_manager_,
+                                          *gcs_scheduler_,
                                           schedule_failure_handler,
                                           schedule_success_handler,
                                           raylet_client_pool_,
@@ -771,14 +777,14 @@ void GcsServer::InitGcsPlacementGroupManager(
     ray::observability::MetricInterface &placement_group_count_gauge) {
   RAY_CHECK(gcs_table_storage_ && gcs_node_manager_);
   gcs_placement_group_scheduler_ = std::make_unique<GcsPlacementGroupScheduler>(
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsScheduler>(),
       *gcs_table_storage_,
       *gcs_node_manager_,
       *cluster_resource_scheduler_,
       raylet_client_pool_);
 
   gcs_placement_group_manager_ = std::make_unique<GcsPlacementGroupManager>(
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsScheduler>(),
       gcs_placement_group_scheduler_.get(),
       gcs_table_storage_.get(),
       *gcs_resource_manager_,
@@ -793,7 +799,7 @@ void GcsServer::InitGcsPlacementGroupManager(
 
   gcs_placement_group_manager_->Initialize(gcs_init_data);
   rpc_server_.RegisterService(std::make_unique<rpc::PlacementGroupInfoGrpcService>(
-      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<GcsScheduler>(),
       *gcs_placement_group_manager_,
       RayConfig::instance().gcs_max_active_rpcs_per_handler()));
 }
