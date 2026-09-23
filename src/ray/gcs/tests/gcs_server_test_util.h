@@ -353,6 +353,7 @@ struct GcsServerMocker {
 
    protected:
     friend class GcsPlacementGroupSchedulerTest;
+    FRIEND_TEST(GcsPlacementGroupSchedulerTest, TestCheckingWildcardResource);
   };
   class FakeGcsActorTable : public gcs::GcsActorTable {
    public:
