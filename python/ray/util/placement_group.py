@@ -682,3 +682,19 @@ def _configure_placement_group_based_on_context(
             placement_group, resources, placement_resources, task_or_actor_repr
         )
     return placement_group
+
+
+@PublicAPI
+@client_mode_wrap
+def lock_scheduler():
+    worker = ray._private.worker.global_worker
+    worker.check_connected()
+    return worker.core_worker.lock_scheduler()
+
+
+@PublicAPI
+@client_mode_wrap
+def unlock_scheduler():
+    worker = ray._private.worker.global_worker
+    worker.check_connected()
+    return worker.core_worker.unlock_scheduler()

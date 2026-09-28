@@ -22,6 +22,7 @@ from ray.includes.unique_ids cimport (
     CPlacementGroupID,
     CWorkerID,
     ObjectIDIndexType,
+    CLockID,
 )
 
 from ray.includes.common cimport (
@@ -183,6 +184,8 @@ cdef extern from "ray/core_worker/core_worker.h" nogil:
                               c_bool recursive)
         c_bool IsTaskCanceled(const CTaskID &task_id) const
         c_bool ShouldInterruptTaskForCancellation() const
+        CRayStatus LockScheduler()
+        CRayStatus UnlockScheduler()
 
         unique_ptr[CProfileEvent] CreateProfileEvent(
             const c_string &event_type)
@@ -237,6 +240,7 @@ cdef extern from "ray/core_worker/core_worker.h" nogil:
         c_bool GetCurrentTaskRetryExceptions()
         CPlacementGroupID GetCurrentPlacementGroupId() const
         CWorkerID GetWorkerID()
+        CLockID GetSchedLockID()
         c_bool ShouldCaptureChildTasksInPlacementGroup()
         CActorID GetActorId() const
         const c_string GetActorName()

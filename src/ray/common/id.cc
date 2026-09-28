@@ -344,7 +344,10 @@ ID_OSTREAM_OPERATOR(TaskID);
 ID_OSTREAM_OPERATOR(ObjectID);
 ID_OSTREAM_OPERATOR(PlacementGroupID);
 ID_OSTREAM_OPERATOR(LeaseID);
+ID_OSTREAM_OPERATOR(LockID);
 
 const NodeID kGCSNodeID = NodeID::FromBinary(std::string(kUniqueIDSize, 0));
+const LockID kSchedLockID =
+    LockID::FromHex("534348444C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C");  // SCHD
 
 }  // namespace ray

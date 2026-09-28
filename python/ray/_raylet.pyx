@@ -4216,6 +4216,22 @@ cdef class CoreWorker:
         # call to AsyncWaitPlacementGroupReady.
         return ObjectRef(c_object_id.Binary(), skip_adding_local_ref=True)
 
+    def lock_scheduler(self, timeout=2):
+        cdef CRayStatus status
+        status = CCoreWorkerProcess.GetCoreWorker() \
+            .LockScheduler()
+        while status.IsAlreadyExists():
+            time.sleep(timeout)   # exponential?
+            status = CCoreWorkerProcess.GetCoreWorker() \
+                .LockScheduler()
+        return status.ok()
+
+    def unlock_scheduler(self):
+        cdef CRayStatus status
+        status = CCoreWorkerProcess.GetCoreWorker() \
+            .UnlockScheduler()
+        return status.ok()
+
     def submit_actor_task(self,
                           Language language,
                           ActorID actor_id,

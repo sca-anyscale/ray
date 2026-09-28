@@ -18,6 +18,7 @@ from ray.includes.unique_ids cimport (
     CTaskID,
     CPlacementGroupID,
     CNodeID,
+    CLockID,
 )
 from ray.includes.function_descriptor cimport (
     CFunctionDescriptor,

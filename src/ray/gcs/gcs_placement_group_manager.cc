@@ -757,6 +757,8 @@ void GcsPlacementGroupManager::OnNodeDead(const NodeID &node_id) {
       }
     }
   }
+
+  RemoveLocksByNode(node_id);
 }
 
 void GcsPlacementGroupManager::OnNodeAdd(const NodeID &node_id) {
@@ -800,6 +802,8 @@ void GcsPlacementGroupManager::CleanPlacementGroupIfNeededWhenJobDead(
       }
     });
   }
+
+  RemoveLocksByJob(job_id);
 }
 
 void GcsPlacementGroupManager::CleanPlacementGroupIfNeededWhenActorDead(
@@ -1085,6 +1089,99 @@ bool GcsPlacementGroupManager::RescheduleIfStillHasUnplacedBundles(
     }
   }
   return false;
+}
+
+// TODO(sca): release lock when:
+// - owner node dies
+// - owner job dies
+//
+// TODO(sca): add table storage
+void GcsPlacementGroupManager::HandleTakeLock(
+    rpc::TakeLockRequest request,
+    rpc::TakeLockReply *reply,
+    rpc::SendReplyCallback send_reply_callback) {
+  absl::MutexLock lock(&lock_table_mutex_);
+
+  RAY_LOG(DEBUG) << "LOCKREQ " << request.DebugString();
+  auto lock_id = LockID::FromBinary(request.lock_id());
+
+  if (!locks_.contains(lock_id)) {
+    rpc::LockStatus lock_status;
+
+    lock_status.set_lock_id(request.lock_id());
+    lock_status.set_job_id(request.job_id());
+    lock_status.set_node_id(request.node_id());
+    lock_status.set_state(rpc::LockState::LOCKED);
+
+    locks_.emplace(lock_id, lock_status);
+    GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+    return;
+  }
+
+  auto iter = locks_.find(lock_id);  // expected to be present based on above check
+  if (iter->second.job_id() == request.job_id() &&
+      iter->second.node_id() == request.node_id()) {
+    GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+    return;
+  }
+
+  GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::AlreadyExists("locked"));
+}
+
+void GcsPlacementGroupManager::HandleReleaseLock(
+    rpc::ReleaseLockRequest request,
+    rpc::ReleaseLockReply *reply,
+    rpc::SendReplyCallback send_reply_callback) {
+  RAY_LOG(DEBUG) << "LOCKREL " << request.DebugString();
+  absl::MutexLock lock(&lock_table_mutex_);
+  auto lock_id = LockID::FromBinary(request.lock_id());
+
+  auto iter = locks_.find(lock_id);
+  if (iter == locks_.end()) {
+    GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::NotFound("not locked"));
+    return;
+  }
+
+  if (iter->second.job_id() == request.job_id() &&
+      iter->second.node_id() == request.node_id()) {
+    locks_.erase(lock_id);
+    GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
+    return;
+  }
+
+  GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::AlreadyExists("locked"));
+}
+
+void GcsPlacementGroupManager::RemoveLocksByNode(const NodeID &node_id) {
+  std::vector<LockID> removed;
+  absl::MutexLock lock(&lock_table_mutex_);
+  for (const auto &[lock_id, lock_status] : locks_) {
+    if (NodeID::FromBinary(lock_status.node_id()) == node_id) {
+      RAY_LOG(DEBUG).WithField(lock_id).WithField(node_id)
+          << "NODEREL " << lock_status.DebugString();
+      removed.push_back(lock_id);
+    }
+  }
+
+  for (const auto &lock_id : removed) {
+    locks_.erase(lock_id);
+  }
+}
+
+void GcsPlacementGroupManager::RemoveLocksByJob(const JobID &job_id) {
+  std::vector<LockID> removed;
+  absl::MutexLock lock(&lock_table_mutex_);
+  for (const auto &[lock_id, lock_status] : locks_) {
+    if (JobID::FromBinary(lock_status.job_id()) == job_id) {
+      RAY_LOG(DEBUG).WithField(lock_id).WithField(job_id)
+          << "JOBREL " << lock_status.DebugString();
+      removed.push_back(lock_id);
+    }
+  }
+
+  for (const auto &lock_id : removed) {
+    locks_.erase(lock_id);
+  }
 }
 
 }  // namespace gcs

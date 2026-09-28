@@ -43,6 +43,7 @@ enum TablePrefix {
   PLACEMENT_GROUP = 17;
   KV = 18;
   ACTOR_TASK_SPEC = 19;
+  LOCK_STATUS = 20;
 }
 
 // The channel that Add operations to the Table should be published on, if any.
@@ -744,4 +745,18 @@ message JobTableData {
   // Address of the driver that started this job.
   Address driver_address = 12;
 }
+
+enum LockState {
+  UNKNOWN = 0;
+  LOCKED = 1;
+  UNLOCKED = 2;
+};
+
+message LockStatus {
+  bytes lock_id = 1;
+  LockState state = 2;
+  bytes job_id = 3;  // debugging
+  bytes node_id = 4; // debugging
+};
+
 ///////////////////////////////////////////////////////////////////////////////

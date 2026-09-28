@@ -58,6 +58,7 @@ class WorkerContext {
   WorkerType GetWorkerType() const;
 
   const WorkerID &GetWorkerID() const;
+  const LockID &GetSchedLockID() const;
 
   JobID GetCurrentJobID() const ABSL_LOCKS_EXCLUDED(mutex_);
   rpc::JobConfig GetCurrentJobConfig() const ABSL_LOCKS_EXCLUDED(mutex_);

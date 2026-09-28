@@ -5083,4 +5083,14 @@ void CoreWorker::SendFreeLocalObjectsBatchIfNeeded(const NodeID &node_id) {
       });
 }
 
+Status CoreWorker::LockScheduler() {
+  return gcs_client_->PlacementGroups().TakeLock(
+      kSchedLockID, worker_context_->GetCurrentJobID(), GetCurrentNodeId(), 9999);
+}
+
+Status CoreWorker::UnlockScheduler() {
+  return gcs_client_->PlacementGroups().ReleaseLock(
+      kSchedLockID, worker_context_->GetCurrentJobID(), GetCurrentNodeId());
+}
+
 }  // namespace ray::core

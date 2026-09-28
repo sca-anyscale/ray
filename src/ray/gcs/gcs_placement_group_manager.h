@@ -97,6 +97,17 @@ class GcsPlacementGroupManager : public rpc::PlacementGroupInfoGcsServiceHandler
       rpc::WaitPlacementGroupUntilReadyReply *reply,
       rpc::SendReplyCallback send_reply_callback) override;
 
+  void HandleTakeLock(rpc::TakeLockRequest request,
+                      rpc::TakeLockReply *reply,
+                      rpc::SendReplyCallback send_reply_callback) override;
+
+  void HandleReleaseLock(rpc::ReleaseLockRequest request,
+                         rpc::ReleaseLockReply *reply,
+                         rpc::SendReplyCallback send_reply_callback) override;
+
+  void RemoveLocksByJob(const JobID &job_id);
+  void RemoveLocksByNode(const NodeID &node_id);
+
   /// Register a callback which will be invoked after successfully created.
   ///
   /// \param placement_group_id The placement group id which we want to listen.
@@ -377,6 +388,9 @@ class GcsPlacementGroupManager : public rpc::PlacementGroupInfoGcsServiceHandler
       &placement_group_scheduling_latency_in_ms_histogram_;
   ray::observability::MetricInterface &placement_group_count_gauge_;
   ClockInterface &clock_;
+
+  absl::Mutex lock_table_mutex_;
+  absl::flat_hash_map<LockID, rpc::LockStatus> locks_ ABSL_GUARDED_BY(lock_table_mutex_);
 
   FRIEND_TEST(GcsPlacementGroupManagerMockTest, PendingQueuePriorityReschedule);
   FRIEND_TEST(GcsPlacementGroupManagerMockTest, PendingQueuePriorityFailed);

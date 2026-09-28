@@ -20,6 +20,7 @@ from ray.includes.unique_ids cimport (
     CWorkerID,
     CPlacementGroupID,
     CClusterID,
+    CLockID,
 )
 
 

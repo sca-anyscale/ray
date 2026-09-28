@@ -74,6 +74,15 @@ class GcsInitData {
     return worker_table_data_;
   }
 
+  /**
+   * @brief Get the lock status metadata loaded from the lock status table.
+   *
+   * @return Map from lock id to its lock status table entry.
+   */
+  const absl::flat_hash_map<LockID, rpc::LockStatus> &LockStatus() const {
+    return lock_status_table_data_;
+  }
+
  private:
   /// Load job metadata from the store into memory asynchronously.
   ///
@@ -104,6 +113,13 @@ class GcsInitData {
    */
   void AsyncLoadWorkerTableData(Postable<void()> on_done);
 
+  /**
+   * @brief Load lock status metadata from the store into memory asynchronously.
+   *
+   * @param on_done The callback invoked when lock status metadata is loaded successfully.
+   */
+  void AsyncLoadLockStatusTableData(Postable<void()> on_done);
+
  protected:
   /// The gcs table storage.
   gcs::GcsTableStorage &gcs_table_storage_;
@@ -125,6 +141,9 @@ class GcsInitData {
 
   /// Worker metadata.
   absl::flat_hash_map<WorkerID, rpc::WorkerTableData> worker_table_data_;
+
+  /// Lock status metadata.
+  absl::flat_hash_map<LockID, rpc::LockStatus> lock_status_table_data_;
 };
 
 }  // namespace gcs

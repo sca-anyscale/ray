@@ -597,6 +597,11 @@ inline std::vector<ObjectID> ObjectRefsToIds(
   return object_ids;
 }
 
+template <>
+struct DefaultLogKey<LockID> {
+  constexpr static std::string_view key = kLogKeyLockID;
+};
+
 }  // namespace ray
 
 namespace std {
@@ -621,4 +626,5 @@ DEFINE_UNIQUE_ID(LeaseID);
 
 namespace ray {
 extern const NodeID kGCSNodeID;
-}
+extern const LockID kSchedLockID;
+}  // namespace ray

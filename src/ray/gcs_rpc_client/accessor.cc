@@ -826,6 +826,35 @@ Status PlacementGroupInfoAccessor::SyncRemovePlacementGroup(
   return status;
 }
 
+Status PlacementGroupInfoAccessor::TakeLock(const ray::LockID &lock_id,
+                                            const ray::JobID &job_id,
+                                            const ray::NodeID &node_id,
+                                            int64_t timeout_seconds) {
+  rpc::TakeLockRequest request;
+  rpc::TakeLockReply reply;
+  request.set_lock_id(lock_id.Binary());
+  request.set_job_id(job_id.Binary());
+  request.set_node_id(node_id.Binary());
+  request.set_op(rpc::LockOperation::LOCK);
+  auto status = client_impl_->GetGcsRpcClient().SyncTakeLock(
+      std::move(request), &reply, rpc::GetGcsTimeoutMs());
+  return status;
+}
+
+Status PlacementGroupInfoAccessor::ReleaseLock(const ray::LockID &lock_id,
+                                               const ray::JobID &job_id,
+                                               const ray::NodeID &node_id) {
+  rpc::ReleaseLockRequest request;
+  rpc::ReleaseLockReply reply;
+  request.set_lock_id(lock_id.Binary());
+  request.set_job_id(job_id.Binary());
+  request.set_node_id(node_id.Binary());
+  request.set_op(rpc::LockOperation::UNLOCK);
+  auto status = client_impl_->GetGcsRpcClient().SyncReleaseLock(
+      std::move(request), &reply, rpc::GetGcsTimeoutMs());
+  return status;
+}
+
 void PlacementGroupInfoAccessor::AsyncGet(
     const PlacementGroupID &placement_group_id,
     const rpc::OptionalItemCallback<rpc::PlacementGroupTableData> &callback) {

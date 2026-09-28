@@ -208,6 +208,7 @@ template class GcsTable<ActorID, rpc::TaskSpec>;
 template class GcsTableWithJobId<ActorID, rpc::ActorTableData>;
 template class GcsTableWithJobId<ActorID, rpc::TaskSpec>;
 template class GcsTable<PlacementGroupID, rpc::PlacementGroupTableData>;
+template class GcsTable<LockID, rpc::LockStatus>;
 
 }  // namespace gcs
 }  // namespace ray

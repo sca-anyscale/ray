@@ -197,6 +197,14 @@ class GcsWorkerTable : public GcsTable<WorkerID, rpc::WorkerTableData> {
   }
 };
 
+class GcsLockStatusTable : public GcsTable<LockID, rpc::LockStatus> {
+ public:
+  explicit GcsLockStatusTable(std::shared_ptr<StoreClient> store_client)
+      : GcsTable(std::move(store_client)) {
+    table_name_ = rpc::TablePrefix_Name(rpc::TablePrefix::LOCK_STATUS);
+  }
+};
+
 class GcsTableStorage {
  public:
   explicit GcsTableStorage(std::shared_ptr<StoreClient> store_client)
@@ -207,6 +215,7 @@ class GcsTableStorage {
     placement_group_table_ = std::make_unique<GcsPlacementGroupTable>(store_client_);
     node_table_ = std::make_unique<GcsNodeTable>(store_client_);
     worker_table_ = std::make_unique<GcsWorkerTable>(store_client_);
+    lock_status_table_ = std::make_unique<GcsLockStatusTable>(store_client_);
   }
 
   virtual ~GcsTableStorage() = default;
@@ -241,6 +250,11 @@ class GcsTableStorage {
     return *worker_table_;
   }
 
+  GcsLockStatusTable &LockStatusTable() {
+    RAY_CHECK(lock_status_table_ != nullptr);
+    return *lock_status_table_;
+  }
+
   void AsyncGetNextJobID(Postable<void(int)> callback) {
     RAY_CHECK(store_client_);
     store_client_->AsyncGetNextJobID(std::move(callback));
@@ -254,6 +268,7 @@ class GcsTableStorage {
   std::unique_ptr<GcsPlacementGroupTable> placement_group_table_;
   std::unique_ptr<GcsNodeTable> node_table_;
   std::unique_ptr<GcsWorkerTable> worker_table_;
+  std::unique_ptr<GcsLockStatusTable> lock_status_table_;
 };
 
 }  // namespace gcs

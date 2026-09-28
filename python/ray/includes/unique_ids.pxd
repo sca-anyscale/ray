@@ -188,4 +188,19 @@ cdef extern from "ray/common/id.h" namespace "ray" nogil:
         @staticmethod
         CPlacementGroupID Of(CJobID job_id)
 
+    cdef cppclass CLockID "ray::LockID" \
+                                    (CBaseID[CLockID]):
+
+        @staticmethod
+        CLockID FromBinary(const c_string &binary)
+
+        @staticmethod
+        CLockID FromHex(const c_string &hex_str)
+
+        @staticmethod
+        const CLockID Nil()
+
+        @staticmethod
+        size_t Size()
+
     ctypedef uint32_t ObjectIDIndexType

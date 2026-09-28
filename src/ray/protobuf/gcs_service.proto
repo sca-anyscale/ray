@@ -499,6 +499,42 @@ message GetNamedPlacementGroupReply {
   PlacementGroupTableData placement_group_table_data = 2;
 }
 
+enum LockOperation {
+  NOOP = 0;
+  LOCK = 1;
+  UNLOCK = 2;
+}
+
+enum LockResult {
+  NO_CHANGE = 0;
+  GRANTED = 1;
+  RELEASED = 2;
+};
+
+message TakeLockRequest {
+  bytes lock_id = 1;
+  LockOperation op = 2;
+  bytes job_id = 3;  // debugging
+  bytes node_id = 4; // debugging
+};
+
+message ReleaseLockRequest {
+  bytes lock_id = 1;
+  LockOperation op = 2;
+  bytes job_id = 3;  // debugging
+  bytes node_id = 4; // debugging
+};
+
+message TakeLockReply {
+  GcsStatus status = 1;
+  LockResult result = 2;
+};
+
+message ReleaseLockReply {
+  GcsStatus status = 1;
+  LockResult result = 2;
+};
+
 // Service for placement group info access.
 service PlacementGroupInfoGcsService {
   // Create placement group via gcs service.
@@ -518,6 +554,9 @@ service PlacementGroupInfoGcsService {
   // Wait for placement group until ready.
   rpc WaitPlacementGroupUntilReady(WaitPlacementGroupUntilReadyRequest)
       returns (WaitPlacementGroupUntilReadyReply);
+  // TODO(sca): this doesn't belong here
+  rpc TakeLock(TakeLockRequest) returns (TakeLockReply);
+  rpc ReleaseLock(ReleaseLockRequest) returns (ReleaseLockReply);
 }
 
 ///////////////////////////////////////////////////////////////////////////////

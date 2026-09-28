@@ -1531,6 +1531,9 @@ class CoreWorker : public std::enable_shared_from_this<CoreWorker> {
   void FreeObjectOnNodesAsync(const ObjectID &object_id,
                               const absl::flat_hash_set<NodeID> &locations);
 
+  Status LockScheduler();
+  Status UnlockScheduler();
+
  private:
   /// Resolve a raylet RPC client by node id. Should be used to only get a temporary RPC
   /// client, since the retryable GRPC client relies on clients going out of scope to

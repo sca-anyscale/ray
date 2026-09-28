@@ -296,6 +296,14 @@ class PlacementGroupInfoGcsServiceHandler {
   virtual void HandleGetNamedPlacementGroup(GetNamedPlacementGroupRequest request,
                                             GetNamedPlacementGroupReply *reply,
                                             SendReplyCallback send_reply_callback) = 0;
+
+  virtual void HandleTakeLock(TakeLockRequest request,
+                              TakeLockReply *reply,
+                              SendReplyCallback send_reply_callback) = 0;
+
+  virtual void HandleReleaseLock(ReleaseLockRequest request,
+                                 ReleaseLockReply *reply,
+                                 SendReplyCallback send_reply_callback) = 0;
 };
 
 namespace autoscaler {

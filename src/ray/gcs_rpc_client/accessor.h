@@ -600,6 +600,14 @@ class PlacementGroupInfoAccessor {
   virtual Status SyncWaitUntilReady(const PlacementGroupID &placement_group_id,
                                     int64_t timeout_seconds);
 
+  virtual Status TakeLock(const LockID &lock_id,
+                          const JobID &job_id,
+                          const NodeID &node_id,
+                          int64_t timeout_seconds);
+  virtual Status ReleaseLock(const LockID &lock_id,
+                             const JobID &job_id,
+                             const NodeID &node_id);
+
  private:
   GcsClient *client_impl_;
 };

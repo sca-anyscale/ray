@@ -181,6 +181,7 @@ WorkerContext::WorkerContext(WorkerType worker_type,
 WorkerType WorkerContext::GetWorkerType() const { return worker_type_; }
 
 const WorkerID &WorkerContext::GetWorkerID() const { return worker_id_; }
+const LockID &WorkerContext::GetSchedLockID() const { return kSchedLockID; }
 
 uint64_t WorkerContext::GetNextTaskIndex() {
   return GetThreadContext().GetNextTaskIndex();

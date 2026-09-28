@@ -231,6 +231,8 @@ class LeaderGatedPlacementGroupInfoHandler
   GCS_GATED_RPC(HandleGetNamedPlacementGroup,
                 rpc::GetNamedPlacementGroupRequest,
                 rpc::GetNamedPlacementGroupReply)
+  GCS_GATED_RPC(HandleTakeLock, rpc::TakeLockRequest, rpc::TakeLockReply)
+  GCS_GATED_RPC(HandleReleaseLock, rpc::ReleaseLockRequest, rpc::ReleaseLockReply)
 
  private:
   rpc::PlacementGroupInfoGcsServiceHandler &handler_;
