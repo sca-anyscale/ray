@@ -1111,6 +1111,7 @@ void GcsPlacementGroupManager::HandleTakeLock(
     lock_status.set_lock_id(request.lock_id());
     lock_status.set_job_id(request.job_id());
     lock_status.set_node_id(request.node_id());
+    lock_status.set_worker_id(request.worker_id());
     lock_status.set_state(rpc::LockState::LOCKED);
 
     locks_.emplace(lock_id, lock_status);
@@ -1120,7 +1121,7 @@ void GcsPlacementGroupManager::HandleTakeLock(
 
   auto iter = locks_.find(lock_id);  // expected to be present based on above check
   if (iter->second.job_id() == request.job_id() &&
-      iter->second.node_id() == request.node_id()) {
+      iter->second.worker_id() == request.worker_id()) {
     GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
     return;
   }
@@ -1143,7 +1144,7 @@ void GcsPlacementGroupManager::HandleReleaseLock(
   }
 
   if (iter->second.job_id() == request.job_id() &&
-      iter->second.node_id() == request.node_id()) {
+      iter->second.worker_id() == request.worker_id()) {
     locks_.erase(lock_id);
     GCS_RPC_SEND_REPLY(send_reply_callback, reply, Status::OK());
     return;
@@ -1174,6 +1175,26 @@ void GcsPlacementGroupManager::RemoveLocksByJob(const JobID &job_id) {
   for (const auto &[lock_id, lock_status] : locks_) {
     if (JobID::FromBinary(lock_status.job_id()) == job_id) {
       RAY_LOG(DEBUG).WithField(lock_id).WithField(job_id)
+          << "JOBREL " << lock_status.DebugString();
+      removed.push_back(lock_id);
+    }
+  }
+
+  for (const auto &lock_id : removed) {
+    locks_.erase(lock_id);
+  }
+}
+
+void GcsPlacementGroupManager::OnWorkerDead(const WorkerID &worker_id) {
+  RemoveLocksByWorker(worker_id);
+}
+
+void GcsPlacementGroupManager::RemoveLocksByWorker(const WorkerID &worker_id) {
+  std::vector<LockID> removed;
+  absl::MutexLock lock(&lock_table_mutex_);
+  for (const auto &[lock_id, lock_status] : locks_) {
+    if (WorkerID::FromBinary(lock_status.worker_id()) == worker_id) {
+      RAY_LOG(DEBUG).WithField(lock_id).WithField(worker_id)
           << "JOBREL " << lock_status.DebugString();
       removed.push_back(lock_id);
     }

@@ -603,10 +603,12 @@ class PlacementGroupInfoAccessor {
   virtual Status TakeLock(const LockID &lock_id,
                           const JobID &job_id,
                           const NodeID &node_id,
+                          const WorkerID &worker_id,
                           int64_t timeout_seconds);
   virtual Status ReleaseLock(const LockID &lock_id,
                              const JobID &job_id,
-                             const NodeID &node_id);
+                             const NodeID &node_id,
+                             const WorkerID &worker_id);
 
  private:
   GcsClient *client_impl_;

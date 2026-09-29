@@ -757,6 +757,7 @@ message LockStatus {
   LockState state = 2;
   bytes job_id = 3;  // debugging
   bytes node_id = 4; // debugging
+  bytes worker_id = 5; // debugging
 };
 
 ///////////////////////////////////////////////////////////////////////////////

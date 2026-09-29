@@ -1126,6 +1126,7 @@ void GcsServer::InstallEventListeners() {
         pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         observability_pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         gcs_task_manager_->OnWorkerDead(worker_id, worker_failure_data);
+        gcs_placement_group_manager_->OnWorkerDead(worker_id);
       });
 
   // Install job event listeners.

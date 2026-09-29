@@ -516,6 +516,7 @@ message TakeLockRequest {
   LockOperation op = 2;
   bytes job_id = 3;  // debugging
   bytes node_id = 4; // debugging
+  bytes worker_id = 5; // debugging
 };
 
 message ReleaseLockRequest {
@@ -523,6 +524,7 @@ message ReleaseLockRequest {
   LockOperation op = 2;
   bytes job_id = 3;  // debugging
   bytes node_id = 4; // debugging
+  bytes worker_id = 5; // debugging
 };
 
 message TakeLockReply {

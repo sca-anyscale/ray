@@ -829,12 +829,14 @@ Status PlacementGroupInfoAccessor::SyncRemovePlacementGroup(
 Status PlacementGroupInfoAccessor::TakeLock(const ray::LockID &lock_id,
                                             const ray::JobID &job_id,
                                             const ray::NodeID &node_id,
+                                            const ray::WorkerID &worker_id,
                                             int64_t timeout_seconds) {
   rpc::TakeLockRequest request;
   rpc::TakeLockReply reply;
   request.set_lock_id(lock_id.Binary());
   request.set_job_id(job_id.Binary());
   request.set_node_id(node_id.Binary());
+  request.set_worker_id(worker_id.Binary());
   request.set_op(rpc::LockOperation::LOCK);
   auto status = client_impl_->GetGcsRpcClient().SyncTakeLock(
       std::move(request), &reply, rpc::GetGcsTimeoutMs());
@@ -843,12 +845,14 @@ Status PlacementGroupInfoAccessor::TakeLock(const ray::LockID &lock_id,
 
 Status PlacementGroupInfoAccessor::ReleaseLock(const ray::LockID &lock_id,
                                                const ray::JobID &job_id,
-                                               const ray::NodeID &node_id) {
+                                               const ray::NodeID &node_id,
+                                               const ray::WorkerID &worker_id) {
   rpc::ReleaseLockRequest request;
   rpc::ReleaseLockReply reply;
   request.set_lock_id(lock_id.Binary());
   request.set_job_id(job_id.Binary());
   request.set_node_id(node_id.Binary());
+  request.set_worker_id(worker_id.Binary());
   request.set_op(rpc::LockOperation::UNLOCK);
   auto status = client_impl_->GetGcsRpcClient().SyncReleaseLock(
       std::move(request), &reply, rpc::GetGcsTimeoutMs());

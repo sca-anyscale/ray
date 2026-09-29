@@ -107,6 +107,8 @@ class GcsPlacementGroupManager : public rpc::PlacementGroupInfoGcsServiceHandler
 
   void RemoveLocksByJob(const JobID &job_id);
   void RemoveLocksByNode(const NodeID &node_id);
+  void OnWorkerDead(const WorkerID &worker_id);
+  void RemoveLocksByWorker(const WorkerID &worker_id);
 
   /// Register a callback which will be invoked after successfully created.
   ///
