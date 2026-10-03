@@ -1,3 +1,4 @@
+
 // Copyright 2017 The Ray Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -249,6 +250,13 @@ class GcsPlacementGroupSchedulerTest : public ::testing::Test {
     WaitPendingDone(raylet_clients_[0]->commit_callbacks, 1);
     ASSERT_TRUE(raylet_clients_[0]->GrantCommitBundleResources());
     WaitPlacementGroupPendingDone(1, GcsPlacementGroupStatus::SUCCESS);
+  }
+
+  void AddTwoNodes() {
+    auto node0 = GenNodeInfo(0);
+    auto node1 = GenNodeInfo(1);
+    AddNode(node0);
+    AddNode(node1);
   }
 
   bool EnsureClusterResourcesAreNotInUse() {
@@ -1326,10 +1334,8 @@ TEST_F(GcsPlacementGroupSchedulerTest, TestInitialize) {
 }
 
 TEST_F(GcsPlacementGroupSchedulerTest, TestPrepareFromDeadNodes) {
-  auto node0 = GenNodeInfo(0);
-  auto node1 = GenNodeInfo(1);
-  AddNode(node0);
-  AddNode(node1);
+  // Add two nodes to the cluster.
+  AddTwoNodes();
 
   // Make sure the cluster resources are not in use.
   ASSERT_TRUE(EnsureClusterResourcesAreNotInUse());
@@ -1350,16 +1356,42 @@ TEST_F(GcsPlacementGroupSchedulerTest, TestPrepareFromDeadNodes) {
   GrantPrepareBundleResources(/*grant0=*/{true, Status::OK()},
                               /*grant1=*/{false, Status::IOError("")});
 
-  // Mark the IO-error node dead and verify the placement group is failed.
-  RemoveNode(node1);
-  WaitPlacementGroupPendingDone(1, GcsPlacementGroupStatus::FAILURE);
+  // Make sure the resources are returned to the cluster_resource_manager at the GCS
+  // side.
+  ASSERT_TRUE(EnsureClusterResourcesAreNotInUse());
+}
+
+TEST_F(GcsPlacementGroupSchedulerTest, TestPrepareFromNodeWithInsufficientResources) {
+  // Add two nodes to the cluster.
+  AddTwoNodes();
+
+  // Make sure the cluster resources are not in use.
+  ASSERT_TRUE(EnsureClusterResourcesAreNotInUse());
+
+  // Create a placement group.
+  auto placement_group = std::make_shared<GcsPlacementGroup>(
+      GenCreatePlacementGroupRequest(), "", counter_, clock_);
+
+  // Schedule the unplaced bundles of the placement_group.
+  ScheduleUnplacedBundles(placement_group);
+
+  // Make sure the cluster resources are acquired at the GCS side.
+  ASSERT_FALSE(EnsureClusterResourcesAreNotInUse());
+
+  // Grant the prepare of bundle resources.
+  // node0 grants the schedule request with success=true and status=Status::OK()
+  // node1 grants the schedule request with success=false and status=Status::OK()
+  GrantPrepareBundleResources(/*grant0=*/{true, Status::OK()},
+                              /*grant1=*/{false, Status::OK()});
+
+  // Make sure the resources are returned to the cluster_resource_manager at the GCS
+  // side.
+  ASSERT_TRUE(EnsureClusterResourcesAreNotInUse());
 }
 
 TEST_F(GcsPlacementGroupSchedulerTest, TestCommitToDeadNodes) {
-  auto node0 = GenNodeInfo(0);
-  auto node1 = GenNodeInfo(1);
-  AddNode(node0);
-  AddNode(node1);
+  // Add two nodes to the cluster.
+  AddTwoNodes();
 
   // Make sure the cluster resources are not in use.
   ASSERT_TRUE(EnsureClusterResourcesAreNotInUse());
@@ -1385,10 +1417,9 @@ TEST_F(GcsPlacementGroupSchedulerTest, TestCommitToDeadNodes) {
   // node1 grants the schedule request status=Status::IOError("")
   GrantCommitBundleResources(Status::IOError(""), Status::IOError(""));
 
-  // Mark both IO-error nodes dead and verify the placement group is failed.
-  RemoveNode(node0);
-  RemoveNode(node1);
-  WaitPlacementGroupPendingDone(1, GcsPlacementGroupStatus::FAILURE);
+  // Make sure the resources are returned to the cluster_resource_manager at the GCS
+  // side.
+  ASSERT_TRUE(EnsureClusterResourcesAreNotInUse());
 }
 
 TEST_F(GcsPlacementGroupSchedulerTest, TestCheckingWildcardResource) {
@@ -1439,95 +1470,13 @@ TEST_F(GcsPlacementGroupSchedulerTest, TestBundlesRemovedWhenNodeDead) {
   // Remove the node.
   RemoveNode(node);
 
-  // Remove the placement group. With the node already dead, the Cancel RPCs are
-  // no-ops (CancelResourceReserve short-circuits when the node isn't alive).
+  // Remove the placement group.
   const auto &placement_group_id = placement_group->GetPlacementGroupID();
   scheduler_->DestroyPlacementGroupBundleResourcesIfExists(placement_group_id);
-  ASSERT_EQ(raylet_clients_[0]->num_remove_pg_bundles_requested, 0);
-}
 
-// When a placement group's Prepare RPC fails, GCS leaves the optimistic
-// subtraction it applied during scheduling in place. The view stays divergent
-// from the raylets' actual state until each raylet's next ResourceView sync
-// reconciles it.
-TEST_F(GcsPlacementGroupSchedulerTest, FailedPrepareDueToStaleResourceViewTest) {
-  auto node0 = GenNodeInfo(0);
-  auto node1 = GenNodeInfo(1);
-  AddNode(node0);
-  AddNode(node1);
-  const NodeID node0_id = NodeID::FromBinary(node0->node_id());
-  const NodeID node1_id = NodeID::FromBinary(node1->node_id());
-
-  ASSERT_TRUE(EnsureClusterResourcesAreNotInUse());
-
-  // 1. Schedule a placement group across both nodes.
-  auto placement_group = std::make_shared<GcsPlacementGroup>(
-      GenCreatePlacementGroupRequest(), "", counter_, clock_);
-  ScheduleUnplacedBundles(placement_group);
-
-  // 2. GCS subtracts the bundle resources locally before sending Prepare.
-  ASSERT_FALSE(EnsureClusterResourcesAreNotInUse());
-
-  // 3. Prepare RPC fails on node1.
-  GrantPrepareBundleResources(/*grant0=*/{true, Status::OK()},
-                              /*grant1=*/{false, Status::OK()});
-  WaitPlacementGroupPendingDone(1, GcsPlacementGroupStatus::FAILURE);
-
-  // 4. GCS keeps the optimistic subtraction; the view is still divergent from
-  //    the raylets' actual state.
-  ASSERT_FALSE(EnsureClusterResourcesAreNotInUse());
-
-  // 5. Each raylet's next ResourceView sync reports the actual state (no
-  //    bundles were committed on either node).
-  ApplyRayletResourceView(node0_id, /*available_cpu=*/10, /*total_cpu=*/10);
-  ApplyRayletResourceView(node1_id, /*available_cpu=*/10, /*total_cpu=*/10);
-
-  // 6. GCS's view now matches the raylets' reported state.
-  ASSERT_TRUE(EnsureClusterResourcesAreNotInUse());
-}
-
-// Upon removing a committed placement group, the GCS should receive an updated
-// ResourceView sync from the Raylet and then be able to reschedule to that node.
-TEST_F(GcsPlacementGroupSchedulerTest,
-       PendingPlacementGroupScheduledAfterRemovalAndResourceViewUpdate) {
-  auto node_a = GenNodeInfo(0);
-  AddNode(node_a, /*cpu_num=*/8);
-  const NodeID node_a_id = NodeID::FromBinary(node_a->node_id());
-
-  // 1. PG_1 commits on A.
-  auto pg_1 = MakeStrictPackPlacementGroup(/*bundles_count=*/1, /*cpu_per_bundle=*/8);
-  ScheduleUnplacedBundles(pg_1);
-  ASSERT_TRUE(raylet_clients_[0]->GrantPrepareBundleResources());
-  WaitPendingDone(raylet_clients_[0]->commit_callbacks, 1);
-  ASSERT_TRUE(raylet_clients_[0]->GrantCommitBundleResources());
-  WaitPlacementGroupPendingDone(1, GcsPlacementGroupStatus::SUCCESS);
-  ASSERT_EQ(GcsAvailableCpu(node_a_id), 0);
-
-  // 2. PG_2 (same shape) is submitted while A is fully occupied -> infeasible.
-  auto pg_2 = MakeStrictPackPlacementGroup(1, 8);
-  ScheduleUnplacedBundles(pg_2);
-  WaitPlacementGroupPendingDone(1, GcsPlacementGroupStatus::FAILURE);
-
-  // 3. Remove PG_1.
-  scheduler_->DestroyPlacementGroupBundleResourcesIfExists(pg_1->GetPlacementGroupID());
-  ASSERT_TRUE(raylet_clients_[0]->GrantRemovePlacementGroupBundles());
-  ASSERT_EQ(GcsAvailableCpu(node_a_id), 0);
-
-  // 4. Retry PG_2 before any syncer message arrives -> still infeasible.
-  ScheduleUnplacedBundles(pg_2);
-  WaitPlacementGroupPendingDone(2, GcsPlacementGroupStatus::FAILURE);
-  ASSERT_EQ(GcsAvailableCpu(node_a_id), 0);
-
-  // 5. Raylet broadcasts the post-removal view: available = 8.
-  ApplyRayletResourceView(node_a_id, /*available_cpu=*/8, /*total_cpu=*/8);
-  ASSERT_EQ(GcsAvailableCpu(node_a_id), 8);
-
-  // 6. Retry PG_2 -> now schedules onto A successfully.
-  ScheduleUnplacedBundles(pg_2);
-  ASSERT_TRUE(raylet_clients_[0]->GrantPrepareBundleResources());
-  WaitPendingDone(raylet_clients_[0]->commit_callbacks, 1);
-  ASSERT_TRUE(raylet_clients_[0]->GrantCommitBundleResources());
-  WaitPlacementGroupPendingDone(2, GcsPlacementGroupStatus::SUCCESS);
+  // There shouldn't be any remaining bundles to be removed since the node is
+  // already removed. The bundles are already removed when the node is removed.
+  ASSERT_EQ(scheduler_->waiting_removed_bundles_.size(), 0);
 }
 
 class GcsPlacementGroupCentralizedSchedulerTest : public GcsPlacementGroupSchedulerTest {

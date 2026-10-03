@@ -1411,6 +1411,7 @@ void GcsServer::InstallEventListeners() {
                                          worker_failure_data->exit_type(),
                                          worker_failure_data->exit_detail(),
                                          creation_task_exception);
+        gcs_placement_group_scheduler_->HandleWaitingRemovedBundles();
         gcs_lease_manager_->OnWorkerDead(node_id, worker_id);
         pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
         observability_pubsub_handler_->AsyncRemoveSubscriberFrom(worker_id.Binary());
