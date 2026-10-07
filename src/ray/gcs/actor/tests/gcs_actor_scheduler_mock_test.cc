@@ -24,14 +24,15 @@
 #include "ray/core_worker_rpc_client/fake_core_worker_client.h"
 #include "ray/gcs/actor/gcs_actor.h"
 #include "ray/gcs/actor/gcs_actor_scheduler.h"
+#include "ray/gcs/scheduler/gcs_scheduler.h"
 #include "ray/gcs/store_client/fake_store_client.h"
 #include "ray/observability/fake_metric.h"
 #include "ray/observability/fake_ray_event_recorder.h"
 #include "ray/pubsub/fake_publisher.h"
 #include "ray/pubsub/gcs_publisher.h"
 #include "ray/raylet/scheduling/cluster_resource_scheduler.h"
-#include "ray/raylet_rpc_client/fake_raylet_client.h"
 #include "ray/raylet/scheduling/raylet_cluster_resource_storage.h"
+#include "ray/raylet_rpc_client/fake_raylet_client.h"
 #include "ray/util/clock.h"
 #include "ray/util/counter_map.h"
 
@@ -88,15 +89,20 @@ class GcsActorSchedulerMockTest : public ::testing::Test {
         [this](const NodeID &nid) { return gcs_node_manager->GetAliveNodeAddress(nid); },
         /*announce_infeasible_lease=*/nullptr,
         *local_lease_manager_);
+
+    gcs_scheduler =
+        std::make_unique<GcsScheduler>(*cluster_lease_manager, io_context, io_context);
+
     counter.reset(
         new CounterMap<std::pair<rpc::ActorTableData::ActorState, std::string>>());
     worker_client_pool_ = std::make_unique<rpc::CoreWorkerClientPool>(
         [this](const rpc::Address &address) { return core_worker_client; });
     actor_scheduler = std::make_unique<GcsActorScheduler>(
         io_context,
+        io_context,
         *actor_table,
         *gcs_node_manager,
-        *cluster_lease_manager,
+        *gcs_scheduler,
         [this](auto a, auto b, auto c) { schedule_failure_handler(a); },
         [this](auto a, const rpc::PushTaskReply) { schedule_success_handler(a); },
         *client_pool,
@@ -119,6 +125,7 @@ class GcsActorSchedulerMockTest : public ::testing::Test {
   std::unique_ptr<GcsNodeManager> gcs_node_manager;
   std::unique_ptr<raylet::LocalLeaseManagerInterface> local_lease_manager_;
   std::unique_ptr<ClusterLeaseManager> cluster_lease_manager;
+  std::unique_ptr<GcsScheduler> gcs_scheduler;
   std::unique_ptr<GcsActorScheduler> actor_scheduler;
   std::shared_ptr<rpc::FakeCoreWorkerClient> core_worker_client;
   std::unique_ptr<rpc::CoreWorkerClientPool> worker_client_pool_;

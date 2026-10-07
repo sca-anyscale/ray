@@ -46,7 +46,7 @@ void GcsScheduler::QueueAndScheduleLease(
         cluster_lease_manager_.QueueAndScheduleLease(
             lease, grant_or_reject, is_selected_based_on_locality, reply_callbacks);
       },
-      "GcsScheduler::ScheduleAndGrantLeases");
+      "GcsScheduler::QueueAndScheduleLease");
 }
 
 void GcsScheduler::ScheduleAndGrantLeases() {

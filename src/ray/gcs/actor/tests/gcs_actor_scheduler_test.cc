@@ -29,6 +29,7 @@
 #include "ray/core_worker_rpc_client/fake_core_worker_client.h"
 #include "ray/gcs/actor/gcs_actor.h"
 #include "ray/gcs/gcs_resource_manager.h"
+#include "ray/gcs/scheduler/gcs_scheduler.h"
 #include "ray/gcs/store_client/in_memory_store_client.h"
 #include "ray/observability/fake_metric.h"
 #include "ray/observability/fake_ray_event_recorder.h"
@@ -137,6 +138,9 @@ class GcsActorSchedulerTest : public ::testing::Test {
         },
         /*announce_infeasible_task=*/nullptr,
         /*local_lease_manager=*/*local_lease_manager_);
+    gcs_scheduler_ = std::make_unique<GcsScheduler>(*cluster_lease_manager_,
+                                                    io_context_->GetIoService(),
+                                                    io_context_->GetIoService());
     auto gcs_resource_manager = std::make_shared<gcs::GcsResourceManager>(
         io_context_->GetIoService(),
         cluster_resource_scheduler_->GetClusterResourceManager(),
@@ -146,9 +150,10 @@ class GcsActorSchedulerTest : public ::testing::Test {
         [this](const rpc::Address &address) { return worker_client_; });
     gcs_actor_scheduler_ = std::make_shared<FakeGcsActorScheduler>(
         io_context_->GetIoService(),
+        io_context_->GetIoService(),
         *gcs_actor_table_,
         *gcs_node_manager_,
-        *cluster_lease_manager_,
+        *gcs_scheduler_,
         /*schedule_failure_handler=*/
         [this](std::shared_ptr<gcs::GcsActor> actor,
                const rpc::RequestWorkerLeaseReply::SchedulingFailureType failure_type,
@@ -284,6 +289,7 @@ class GcsActorSchedulerTest : public ::testing::Test {
   std::unique_ptr<ClusterResourceScheduler> cluster_resource_scheduler_;
   std::shared_ptr<FakeGcsActorScheduler> gcs_actor_scheduler_;
   std::shared_ptr<ClusterLeaseManager> cluster_lease_manager_;
+  std::shared_ptr<GcsScheduler> gcs_scheduler_;
   std::shared_ptr<CounterMap<std::pair<rpc::ActorTableData::ActorState, std::string>>>
       counter;
   std::vector<std::shared_ptr<gcs::GcsActor>> failure_actors_;

@@ -970,17 +970,20 @@ void GcsServer::InitGcsActorManager(
     gcs_actor_manager_->OnActorCreationSuccess(actor, reply);
   };
 
-  scheduler =
-      std::make_unique<GcsActorScheduler>(io_context_provider_.GetDefaultIOContext(),
-                                          gcs_table_storage_->ActorTable(),
-                                          *gcs_node_manager_,
-                                          *gcs_scheduler_,
-                                          schedule_failure_handler,
-                                          schedule_success_handler,
-                                          raylet_client_pool_,
-                                          worker_client_pool_,
-                                          metrics_.scheduler_placement_time_ms_histogram,
-                                          clock_);
+  actor_workerizer_ = std::make_unique<ActorWorkerizer>();
+
+  scheduler = std::make_unique<GcsActorScheduler>(
+      io_context_provider_.GetDefaultIOContext(),
+      io_context_provider_.GetIOContext<ActorWorkerizer>(),
+      gcs_table_storage_->ActorTable(),
+      *gcs_node_manager_,
+      *gcs_scheduler_,
+      schedule_failure_handler,
+      schedule_success_handler,
+      raylet_client_pool_,
+      worker_client_pool_,
+      metrics_.scheduler_placement_time_ms_histogram,
+      clock_);
   gcs_actor_manager_ = std::make_shared<GcsActorManager>(
       std::move(scheduler),
       gcs_table_storage_.get(),

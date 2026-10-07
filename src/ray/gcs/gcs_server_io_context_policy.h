@@ -19,6 +19,7 @@
 #include <string_view>
 #include <type_traits>
 
+#include "ray/gcs/actor/gcs_actor_scheduler.h"
 #include "ray/gcs/gcs_kv_manager.h"
 #include "ray/gcs/gcs_node_manager.h"
 #include "ray/gcs/gcs_resource_load_puller.h"
@@ -70,6 +71,8 @@ struct GcsServerIOContextPolicy {
       return IndexOf("resource_load_pull_io_context");
     } else if constexpr (std::is_same_v<T, GcsScheduler>) {
       return IndexOf("scheduler");
+    } else if constexpr (std::is_same_v<T, ActorWorkerizer>) {
+      return IndexOf("workerizer");
     } else {
       // default io context
       return -1;
@@ -80,7 +83,7 @@ struct GcsServerIOContextPolicy {
   // and a complete set of those returned from GetDedicatedIOContextIndex. Or you
   // can get runtime crashes when accessing a missing name, or get leaks by
   // creating unused threads.
-  constexpr static std::array<IOContextMetadata, 9> kAllDedicatedIOContexts{{
+  constexpr static std::array<IOContextMetadata, 10> kAllDedicatedIOContexts{{
       // task_io_context only runs GcsTaskManager, which ingests and serves
       // task-state events (observability) and drops events under load by design.
       // It is not on the GCS control plane, so a backlog here (e.g. under a
@@ -109,6 +112,9 @@ struct GcsServerIOContextPolicy {
        /*enable_lag_probe=*/true,
        /*used_for_health_check=*/false},
       {"scheduler",
+       /*enable_lag_probe=*/true,
+       /*used_for_health_check=*/true},
+      {"workerizer",
        /*enable_lag_probe=*/true,
        /*used_for_health_check=*/true},
   }};

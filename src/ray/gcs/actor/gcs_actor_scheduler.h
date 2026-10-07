@@ -114,6 +114,7 @@ class GcsActorScheduler : public GcsActorSchedulerInterface {
   /// Create a GcsActorScheduler
   ///
   /// \param io_context The main event loop.
+  /// \param worker_context The worker communication context.
   /// \param gcs_actor_table Used to flush actor info to storage.
   /// \param gcs_node_manager The node manager which is used when scheduling.
   /// \param schedule_failure_handler Invoked when there are no available
@@ -127,6 +128,7 @@ class GcsActorScheduler : public GcsActorSchedulerInterface {
   /// schedule an Actor Creation Task on a worker.
   explicit GcsActorScheduler(
       instrumented_io_context &io_context,
+      instrumented_io_context &worker_context,
       GcsActorTable &gcs_actor_table,
       const GcsNodeManager &gcs_node_manager,
       GcsScheduler &gcs_scheduler,
@@ -351,17 +353,22 @@ class GcsActorScheduler : public GcsActorSchedulerInterface {
   /// The io loop that is used to delay execution of tasks (e.g.,
   /// execute_after).
   instrumented_io_context &io_context_;
+  /// The io context for worker communication.
+  instrumented_io_context &worker_context_;
   /// The actor info accessor.
   gcs::GcsActorTable &gcs_actor_table_;
   /// Map from node ID to the set of actors for whom we are trying to acquire a lease from
   /// that node. This is needed so that we can retry lease requests from the node until we
   /// receive a reply or the node is removed.
-  absl::flat_hash_map<NodeID, absl::flat_hash_set<ActorID>> node_to_actors_when_leasing_;
+  absl::flat_hash_map<NodeID, absl::flat_hash_set<ActorID>> node_to_actors_when_leasing_
+      ABSL_GUARDED_BY(leasing_mutex_);
+  mutable absl::Mutex leasing_mutex_;
   /// Map from node ID to the workers on which we are trying to create actors. This is
   /// needed so that we can cancel actor creation requests if the worker is removed.
   absl::flat_hash_map<NodeID,
                       absl::flat_hash_map<WorkerID, std::shared_ptr<GcsLeasedWorker>>>
-      node_to_workers_when_creating_;
+      node_to_workers_when_creating_ ABSL_GUARDED_BY(creating_mutex_);
+  mutable absl::Mutex creating_mutex_;
   /// Reference of GcsNodeManager.
   const GcsNodeManager &gcs_node_manager_;
   /// Reference of ClusterLeaseManager
@@ -450,6 +457,11 @@ class GcsActorScheduler : public GcsActorSchedulerInterface {
   friend class GcsActorSchedulerMockTest;
   FRIEND_TEST(GcsActorSchedulerMockTest, KillWorkerLeak1);
   FRIEND_TEST(GcsActorSchedulerMockTest, KillWorkerLeak2);
+};
+
+class ActorWorkerizer {
+ public:
+  ActorWorkerizer() {}
 };
 
 }  // namespace gcs

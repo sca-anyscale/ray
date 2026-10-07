@@ -352,6 +352,7 @@ class GcsServer {
   std::unique_ptr<ClusterLeaseManager> cluster_lease_manager_;
   NoopLocalLeaseManager local_lease_manager_;
   std::unique_ptr<GcsScheduler> gcs_scheduler_;
+  std::unique_ptr<ActorWorkerizer> actor_workerizer_;
   /// GCS's lease manager
   std::unique_ptr<GcsLeaseManager> gcs_lease_manager_;
   std::unique_ptr<gcs::GcsTableStorage> gcs_table_storage_;

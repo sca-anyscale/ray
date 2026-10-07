@@ -30,6 +30,7 @@ namespace gcs {
 
 GcsActorScheduler::GcsActorScheduler(
     instrumented_io_context &io_context,
+    instrumented_io_context &worker_context,
     GcsActorTable &gcs_actor_table,
     const GcsNodeManager &gcs_node_manager,
     GcsScheduler &gcs_scheduler,
@@ -40,6 +41,7 @@ GcsActorScheduler::GcsActorScheduler(
     ray::observability::MetricInterface &scheduler_placement_time_ms_histogram,
     ClockInterface &clock)
     : io_context_(io_context),
+      worker_context_(worker_context),
       gcs_actor_table_(gcs_actor_table),
       gcs_node_manager_(gcs_node_manager),
       gcs_scheduler_(gcs_scheduler),
@@ -82,6 +84,7 @@ void GcsActorScheduler::ScheduleByRaylet(std::shared_ptr<GcsActor> actor) {
   address.set_node_id(node.value()->node_id());
   actor->UpdateAddress(address);
 
+  absl::MutexLock lock(&leasing_mutex_);
   RAY_CHECK(node_to_actors_when_leasing_[actor->GetNodeID()]
                 .emplace(actor->GetActorID())
                 .second);
@@ -169,6 +172,7 @@ void GcsActorScheduler::ScheduleByGcs(std::shared_ptr<GcsActor> actor) {
     address.set_node_id(node.value()->node_id());
     actor->UpdateAddress(address);
 
+    absl::MutexLock lock(&leasing_mutex_);
     RAY_CHECK(node_to_actors_when_leasing_[actor->GetNodeID()]
                   .emplace(actor->GetActorID())
                   .second);
@@ -177,7 +181,9 @@ void GcsActorScheduler::ScheduleByGcs(std::shared_ptr<GcsActor> actor) {
         actor->GetLeaseSpecification().GetRequiredResources().GetResourceMap(), false));
     // Lease worker directly from the node.
     actor->SetGrantOrReject(true);
-    LeaseWorkerFromNode(actor, node.value());
+    worker_context_.post(
+        [this, actor, node]() { LeaseWorkerFromNode(actor, node.value()); },
+        "GcsActorScheduler::ScheduleByGcs");
   };
 
   // Queue and schedule the actor locally (gcs).
@@ -213,6 +219,7 @@ void GcsActorScheduler::Reschedule(std::shared_ptr<GcsActor> actor) {
         actor->GetAddress(),
         VectorFromProtobuf(actor->GetMutableActorTableData()->resource_mapping()),
         actor->GetActorID());
+    absl::MutexLock lock(&creating_mutex_);
     auto iter_node = node_to_workers_when_creating_.find(actor->GetNodeID());
     if (iter_node != node_to_workers_when_creating_.end()) {
       if (0 == iter_node->second.count(leased_worker->GetWorkerID())) {
@@ -235,6 +242,7 @@ std::vector<ActorID> GcsActorScheduler::CancelOnNode(const NodeID &node_id) {
 
   // Remove all actors in phase of leasing.
   {
+    absl::MutexLock lock(&leasing_mutex_);
     auto iter = node_to_actors_when_leasing_.find(node_id);
     if (iter != node_to_actors_when_leasing_.end()) {
       actor_ids.insert(actor_ids.end(), iter->second.begin(), iter->second.end());
@@ -244,6 +252,7 @@ std::vector<ActorID> GcsActorScheduler::CancelOnNode(const NodeID &node_id) {
 
   // Remove all actors in phase of creating.
   {
+    absl::MutexLock lock(&creating_mutex_);
     auto iter = node_to_workers_when_creating_.find(node_id);
     if (iter != node_to_workers_when_creating_.end()) {
       for (auto &entry : iter->second) {
@@ -262,6 +271,7 @@ void GcsActorScheduler::CancelOnLeasing(const NodeID &node_id,
   // NOTE: This method will cancel the outstanding lease request and remove leasing
   // information from the internal state.
   RAY_LOG(DEBUG) << "Canceling worker lease request " << lease_id;
+  absl::MutexLock lock(&leasing_mutex_);
   auto node_it = node_to_actors_when_leasing_.find(node_id);
   RAY_CHECK(node_it != node_to_actors_when_leasing_.end());
   node_it->second.erase(actor_id);
@@ -288,6 +298,7 @@ ActorID GcsActorScheduler::CancelOnWorker(const NodeID &node_id,
   // Remove the worker from creating map and return ID of the actor associated with the
   // removed worker if exist, else return NilID.
   ActorID assigned_actor_id;
+  absl::MutexLock lock(&creating_mutex_);
   auto iter = node_to_workers_when_creating_.find(node_id);
   if (iter != node_to_workers_when_creating_.end()) {
     auto actor_iter = iter->second.find(worker_id);
@@ -368,15 +379,32 @@ void GcsActorScheduler::LeaseWorkerFromNode(
 
   rpc::RequestWorkerLeaseRequest request;
   request.mutable_lease_spec()->CopyFrom(actor->GetLeaseSpecification().GetMessage());
+  if (RayConfig::instance().centralized_actor_scheduling()) {
+    rpc::NodeAffinitySchedulingStrategy node_strategy;
+    node_strategy.set_fail_on_unavailable(true);
+    node_strategy.set_spill_on_unavailable(false);
+    node_strategy.set_soft(false);
+    node_strategy.set_node_id(node->node_id());
+    request.mutable_lease_spec()
+        ->mutable_scheduling_strategy()
+        ->mutable_node_affinity_scheduling_strategy()
+        ->CopyFrom(node_strategy);
+  }
 
   request.set_grant_or_reject(actor->GetGrantOrReject());
-  request.set_backlog_size(0);
+  if (RayConfig::instance().centralized_actor_scheduling()) {
+    request.set_backlog_size(1);
+  }
   request.set_is_selected_based_on_locality(false);
   raylet_client->RequestWorkerLease(
       std::move(request),
       [this, actor, node](const Status &status,
                           const rpc::RequestWorkerLeaseReply &reply) {
-        HandleWorkerLeaseReply(actor, node, status, reply);
+        worker_context_.dispatch(
+            [this, actor, node, status, reply]() {
+              HandleWorkerLeaseReply(actor, node, status, reply);
+            },
+            "GcsActorScheduler::HandleWorkerLeaseReply");
       });
 }
 
@@ -391,6 +419,7 @@ void GcsActorScheduler::RetryLeasingWorkerFromNode(
 
 void GcsActorScheduler::DoRetryLeasingWorkerFromNode(
     std::shared_ptr<GcsActor> actor, std::shared_ptr<const rpc::GcsNodeInfo> node) {
+  absl::MutexLock lock(&leasing_mutex_);
   auto iter = node_to_actors_when_leasing_.find(actor->GetNodeID());
   if (iter != node_to_actors_when_leasing_.end()) {
     // If the node is still available, the actor must be still in the
@@ -418,6 +447,7 @@ void GcsActorScheduler::HandleWorkerLeaseGrantedReply(
     if (maybe_spill_back_node.has_value()) {
       auto spill_back_node = maybe_spill_back_node.value();
       actor->UpdateAddress(retry_at_raylet_address);
+      absl::MutexLock lock(&leasing_mutex_);
       RAY_CHECK(node_to_actors_when_leasing_[actor->GetNodeID()]
                     .emplace(actor->GetActorID())
                     .second);
@@ -445,6 +475,7 @@ void GcsActorScheduler::HandleWorkerLeaseGrantedReply(
     auto leased_worker = std::make_shared<GcsLeasedWorker>(
         worker_address, std::move(resources), actor->GetActorID());
     auto node_id = leased_worker->GetNodeID();
+    absl::MutexLock lock(&creating_mutex_);
     RAY_CHECK(node_to_workers_when_creating_[node_id]
                   .emplace(leased_worker->GetWorkerID(), leased_worker)
                   .second);
@@ -472,7 +503,7 @@ void GcsActorScheduler::HandleWorkerLeaseGrantedReply(
                             }
                             CreateActorOnWorker(actor, leased_worker);
                           },
-                          io_context_});
+                          worker_context_});
   }
 }
 
@@ -521,6 +552,7 @@ void GcsActorScheduler::CreateActorOnWorker(std::shared_ptr<GcsActor> actor,
         // If the actor is not in the creating map, it means that the actor has been
         // cancelled as the worker or node is dead, just do nothing in this case because
         // the gcs_actor_manager will reconstruct it again.
+        absl::MutexLock lock(&creating_mutex_);
         auto iter = node_to_workers_when_creating_.find(actor->GetNodeID());
         if (iter != node_to_workers_when_creating_.end()) {
           auto worker_iter = iter->second.find(actor->GetWorkerID());
@@ -576,6 +608,7 @@ void GcsActorScheduler::RetryCreatingActorOnWorker(
 
 void GcsActorScheduler::DoRetryCreatingActorOnWorker(
     std::shared_ptr<GcsActor> actor, std::shared_ptr<GcsLeasedWorker> worker) {
+  absl::MutexLock lock(&creating_mutex_);
   auto iter = node_to_workers_when_creating_.find(actor->GetNodeID());
   if (iter != node_to_workers_when_creating_.end()) {
     auto worker_iter = iter->second.find(actor->GetWorkerID());
@@ -619,6 +652,8 @@ bool GcsActorScheduler::KillLeasedWorkerForActor(const rpc::Address &raylet_addr
 
 std::string GcsActorScheduler::DebugString() const {
   std::ostringstream stream;
+  absl::MutexLock lease_lock(&leasing_mutex_);
+  absl::MutexLock create_lock(&creating_mutex_);
   stream << "GcsActorScheduler: "
          << "\n- node_to_actors_when_leasing_: " << node_to_actors_when_leasing_.size()
          << "\n- node_to_workers_when_creating_: "
@@ -640,6 +675,7 @@ void GcsActorScheduler::HandleWorkerLeaseReply(
   // cancelled as the node is dead, just do nothing in this case because the
   // gcs_actor_manager will reconstruct it again.
   auto node_id = NodeID::FromBinary(node->node_id());
+  absl::MutexLock lock(&leasing_mutex_);
   auto iter = node_to_actors_when_leasing_.find(node_id);
   if (iter != node_to_actors_when_leasing_.end()) {
     auto actor_iter = iter->second.find(actor->GetActorID());
