@@ -93,6 +93,22 @@ if [[ "$ARCH" == "x86_64" ]]; then
     rm -rf "${DYNOLOG_TMP}"
 fi
 
+# Install profiling tools (x86_64 only):
+#   - linux-tools for perf CPU profiling of raylet/gcs
+#   - nsight-systems for GPU profiling
+if [[ "$ARCH" == "x86_64" ]]; then
+    . /etc/os-release
+    echo "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu${VERSION_ID//./}/x86_64 /" \
+        | sudo tee /etc/apt/sources.list.d/cuda-profiling.list
+    sudo apt-key adv --fetch-keys \
+        "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu${VERSION_ID//./}/x86_64/3bf863cc.pub"
+    sudo apt-get update
+    sudo apt-get install -y --no-install-recommends google-perftools libgoogle-perftools-dev
+    sudo apt-get install -y --no-install-recommends \
+        linux-tools-6.8.0-1055-aws \
+        nsight-systems-2024.6.2
+fi
+
 uv pip install --system --no-cache-dir --no-deps --index-strategy unsafe-best-match \
     -r $HOME/python_depset.lock
 
