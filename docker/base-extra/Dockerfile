@@ -10,6 +10,9 @@ ARG SSH_PORT=5020
 
 ARG PYTHON_VERSION=3.10
 ARG PYTHON_DEPSET="python/deplocks/base_extra/ray_base_extra_py${PYTHON_VERSION}.lock"
+ARG SLIRP4NETNS_VERSION=1.3.5
+ARG EROFS_UTILS_VERSION=1.9.4
+ARG GVISOR_VERSION=20260921.0
 
 COPY "$PYTHON_DEPSET" /home/ray/python_depset.lock
 
@@ -92,6 +95,9 @@ if [[ "$ARCH" == "x86_64" ]]; then
     )
     rm -rf "${DYNOLOG_TMP}"
 fi
+
+sudo apt-get install -y --no-install-recommends autoconf automake bzip2 ca-certificates \
+    gcc libtool liblz4-dev make pkg-config uuid-dev
 
 # Install profiling tools (x86_64 only):
 #   - linux-tools for perf CPU profiling of raylet/gcs
@@ -203,6 +209,20 @@ fi
 # the image.
 sudo rm -rf /etc/apt/sources.list.d/*
 sudo rm -rf /var/lib/apt/lists/*
+
+sudo curl -fsSL -o /usr/local/bin/slirp4netns \
+    "https://github.com/rootless-containers/slirp4netns/releases/download/v${SLIRP4NETNS_VERSION}/slirp4netns-$(uname -m)"
+sudo chmod a+rx /usr/local/bin/slirp4netns
+cd /tmp && curl -fsSL "https://github.com/erofs/erofs-utils/archive/refs/tags/v${EROFS_UTILS_VERSION}.tar.gz" | tar -xz
+cd "/tmp/erofs-utils-${EROFS_UTILS_VERSION}" && ./autogen.sh && ./configure --disable-fuse --prefix=/usr/local \
+    && make -j"$(nproc)" && sudo make install
+
+curl -fsSL "https://storage.googleapis.com/gvisor/releases/release/${GVISOR_VERSION}/$(uname -m)/gvisor.tar.bz2" \
+    | sudo tar -xj -C /usr/local/bin
+#hash -r
+#mkfs.erofs --version
+#slirp4netns --version
+#runsc --version
 
 EOF
 
