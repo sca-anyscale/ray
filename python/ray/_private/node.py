@@ -14,6 +14,7 @@ import tempfile
 import threading
 import time
 import traceback
+from importlib.resources import files
 from typing import IO, TYPE_CHECKING, AnyStr, Optional, Tuple
 
 import ray
@@ -411,6 +412,16 @@ class Node:
             self.start_reaper_process()
         if not connect_only:
             self._ray_params.update_pre_selected_port()
+
+        # sandboxing
+        script_path = files("ray").joinpath("sandbox", "apparmor-config.sh")
+        if os.path.exists(script_path):
+            # exec apparmor config -- XXX need a way to turn this off
+            logger.info(f"Executing {script_path}")
+            try:
+                subprocess.check_output([script_path])
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to execute {script_path}: {e}")
 
         # Start processes.
         if head:

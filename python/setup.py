@@ -189,6 +189,11 @@ ray_files += [
     "ray/autoscaler/ray-schema.json",
 ]
 
+# Sandbox support
+ray_files += [
+    "ray/sandbox/apparmor-config.sh",
+]
+
 # Dashboard files.
 ray_files += [
     os.path.join(dirpath, filename)
